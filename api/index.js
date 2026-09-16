@@ -944,10 +944,10 @@ var createTokenCheckoutSession = async (input) => {
 var BILLING_UNCONFIGURED_MESSAGE = "Billing is not configured on the server (FIREBASE_ADMIN_SA_KEY_JSON is missing), so token balances cannot be read right now.";
 var pathOf = (url) => String(url || "").split(/[?#]/)[0];
 var routeBillingApiRequest = async (request, response) => {
-  const path12 = pathOf(request.url);
-  if (!path12.startsWith("/api/billing/")) return false;
+  const path3 = pathOf(request.url);
+  if (!path3.startsWith("/api/billing/")) return false;
   const method = String(request.method || "GET").toUpperCase();
-  if (method === "GET" && path12 === "/api/billing/pricing") {
+  if (method === "GET" && path3 === "/api/billing/pricing") {
     const admin = getAdminConfigStatus();
     response.status(200).json({
       packs: TOKEN_PACKS,
@@ -966,7 +966,7 @@ var routeBillingApiRequest = async (request, response) => {
     });
     return true;
   }
-  const isUserRoute = method === "GET" && path12 === "/api/billing/account" || method === "POST" && path12 === "/api/billing/storage/check" || method === "POST" && path12 === "/api/billing/checkout";
+  const isUserRoute = method === "GET" && path3 === "/api/billing/account" || method === "POST" && path3 === "/api/billing/storage/check" || method === "POST" && path3 === "/api/billing/checkout";
   if (!isUserRoute) {
     response.status(404).json({ error: "Not Found" });
     return true;
@@ -976,7 +976,7 @@ var routeBillingApiRequest = async (request, response) => {
     response.status(401).json({ error: "Sign in to continue.", reason: "no-token" });
     return true;
   }
-  if (path12 === "/api/billing/storage/check") {
+  if (path3 === "/api/billing/storage/check") {
     response.status(200).json(await checkStorageAllowance(user.uid, request.body?.additionalBytes));
     return true;
   }
@@ -984,7 +984,7 @@ var routeBillingApiRequest = async (request, response) => {
     response.status(503).json({ error: BILLING_UNCONFIGURED_MESSAGE });
     return true;
   }
-  if (path12 === "/api/billing/account") {
+  if (path3 === "/api/billing/account") {
     const [entitlement, storage] = await Promise.all([ensureEntitlement(user.uid), getStorageUsage(user.uid)]);
     response.status(200).json({
       tokenBalance: entitlement.tokenBalance,
@@ -1044,8 +1044,8 @@ var pathOf2 = (url) => {
 };
 var getRouteCharge = (url, method) => {
   if (String(method || "GET").toUpperCase() !== "POST") return null;
-  const path12 = pathOf2(url);
-  const rule = CHARGE_RULES.find((candidate) => candidate.pattern.test(path12));
+  const path3 = pathOf2(url);
+  const rule = CHARGE_RULES.find((candidate) => candidate.pattern.test(path3));
   return rule ? { reason: rule.reason, amount: STEP_COSTS[rule.reason] } : null;
 };
 var isPublicApiRoute = (url, method) => String(method || "GET").toUpperCase() === "GET" && /^\/api\/billing\/pricing\/?$/.test(pathOf2(url));
@@ -1084,9 +1084,9 @@ var JOB_CREATE_PATTERNS = [
   { kind: "revit-export", pattern: /^\/api\/exports\/revit\/?$/ },
   { kind: "aps-revit-import", pattern: /^\/api\/imports\/aps-revit\/?$/ }
 ];
-var matchJobId = (path12) => {
+var matchJobId = (path3) => {
   for (const { kind, pattern } of JOB_ROUTE_PATTERNS) {
-    const match = pattern.exec(path12);
+    const match = pattern.exec(path3);
     if (match && !["engines", "download"].includes(match[1])) return { kind, jobId: decodeURIComponent(match[1]) };
   }
   return null;
@@ -1144,7 +1144,7 @@ var watchAiRenderJob = (jobId, dispatch2) => {
 var runGatedApiRequest = async (incoming, response, dispatch2) => {
   const method = String(incoming.method || "GET").toUpperCase();
   const url = String(incoming.url || "");
-  const path12 = pathOf3(url);
+  const path3 = pathOf3(url);
   const auth = await verifyRequest({ headers: incoming.headers });
   const user = auth.user;
   const allowAnonymous = isEnvFlagOn(process.env.ALLOW_ANONYMOUS_API);
@@ -1163,10 +1163,10 @@ var runGatedApiRequest = async (incoming, response, dispatch2) => {
     }
     return true;
   }
-  if (path12.startsWith("/api/billing/")) {
+  if (path3.startsWith("/api/billing/")) {
     return routeBillingApiRequest({ method, url, body: incoming.body, user }, response);
   }
-  const jobRef = matchJobId(path12);
+  const jobRef = matchJobId(path3);
   if (jobRef) {
     const record = JOB_RECORDS.get(jobRef.jobId);
     if (record?.ownerId && record.ownerId !== user?.uid) {
@@ -1238,7 +1238,7 @@ var runGatedApiRequest = async (incoming, response, dispatch2) => {
       await refundQuietly(user.uid, chargedRequestId);
     }
     if (handled && !failed && payload?.jobId) {
-      const created = JOB_CREATE_PATTERNS.find((entry) => method === "POST" && entry.pattern.test(path12));
+      const created = JOB_CREATE_PATTERNS.find((entry) => method === "POST" && entry.pattern.test(path3));
       if (created) {
         JOB_RECORDS.set(String(payload.jobId), { ownerId: user?.uid || null, chargeRequestId: chargedRequestId, kind: created.kind });
         if (created.kind === "ai-render") watchAiRenderJob(String(payload.jobId), dispatch2);
@@ -1246,7 +1246,7 @@ var runGatedApiRequest = async (incoming, response, dispatch2) => {
     }
     if (handled && !failed && jobRef?.kind === "ai-render") {
       const record = JOB_RECORDS.get(jobRef.jobId);
-      if (record && /\/retry\/?$/.test(path12) && method === "POST" && user) {
+      if (record && /\/retry\/?$/.test(path3) && method === "POST" && user) {
         record.chargeRequestId = chargedRequestId;
         record.watching = false;
         watchAiRenderJob(jobRef.jobId, dispatch2);
@@ -4137,8 +4137,47 @@ var routeAutoPlanApiRequest = async (request, response) => {
 // services/smartText2planBackend.ts
 import { GoogleGenAI } from "@google/genai";
 import { GoogleAuth } from "google-auth-library";
-import path2 from "path";
+import fs2 from "fs";
+
+// services/vertexKeyFile.ts
 import fs from "fs";
+import os2 from "os";
+import path2 from "path";
+var cache = /* @__PURE__ */ new Map();
+var materialise = (json, fileName) => {
+  try {
+    const parsed = JSON.parse(json.trim().replace(/^'([\s\S]*)'$/, "$1"));
+    if (!parsed?.client_email || !parsed?.private_key) return null;
+    if (typeof parsed.private_key === "string") parsed.private_key = parsed.private_key.replace(/\\n/g, "\n");
+    const target = path2.join(os2.tmpdir(), fileName);
+    fs.writeFileSync(target, JSON.stringify(parsed), { mode: 384 });
+    return target;
+  } catch (error) {
+    console.warn(`[Vertex] Could not read the service-account key from the environment: ${error instanceof Error ? error.message : error}`);
+    return null;
+  }
+};
+var resolveVertexKeyPath = (relativePath, envVarNames) => {
+  const repoPath = path2.resolve(relativePath);
+  if (fs.existsSync(repoPath)) return repoPath;
+  const cacheKey = envVarNames.join("|");
+  const cached2 = cache.get(cacheKey);
+  if (cached2 && fs.existsSync(cached2)) return cached2;
+  for (const name of envVarNames) {
+    const value = process.env[name];
+    if (!value) continue;
+    const written = materialise(value, `archai-${path2.basename(relativePath)}`);
+    if (written) {
+      cache.set(cacheKey, written);
+      return written;
+    }
+  }
+  return repoPath;
+};
+var resolveDefaultVertexKeyPath = () => resolveVertexKeyPath("ml/auto_plan/gcp_key.json", ["GOOGLE_VERTEX_SA_KEY_JSON", "VERTEX_SA_KEY_JSON"]);
+var resolveRenderVertexKeyPath = () => resolveVertexKeyPath("ml/auto_plan/rendair_gcp_key.json", ["GOOGLE_VERTEX_RENDER_SA_KEY_JSON", "RENDAIR_SA_KEY_JSON"]);
+
+// services/smartText2planBackend.ts
 var routeSmartText2PlanApiRequest = async (request, response) => {
   const url = request.url || "";
   if (!url.startsWith("/api/smart-text2plan/generate")) {
@@ -4147,8 +4186,8 @@ var routeSmartText2PlanApiRequest = async (request, response) => {
   }
   try {
     const { designSummary, boundaryPoints } = request.body || {};
-    const keyPath = path2.resolve("ml/auto_plan/gcp_key.json");
-    if (!fs.existsSync(keyPath)) {
+    const keyPath = resolveDefaultVertexKeyPath();
+    if (!fs2.existsSync(keyPath)) {
       throw new Error(`Service account key not found at ${keyPath}`);
     }
     process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
@@ -4252,8 +4291,7 @@ Do NOT include furniture.
 // services/text2planBackend.ts
 import { GoogleGenAI as GoogleGenAI2 } from "@google/genai";
 import { GoogleAuth as GoogleAuth2 } from "google-auth-library";
-import path3 from "path";
-import fs2 from "fs";
+import fs3 from "fs";
 
 // services/text4cImageConfig.ts
 var TEXT4C_LOW_LATENCY_GENERATION_CONFIG = {
@@ -4271,7 +4309,7 @@ var TEXT4C_LOW_LATENCY_GENERATION_CONFIG = {
 };
 
 // services/text2planBackend.ts
-var VERTEX_KEY_PATH = path3.resolve("ml/auto_plan/gcp_key.json");
+var VERTEX_KEY_PATH = resolveDefaultVertexKeyPath();
 var VERTEX_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 var cachedVertexAuth;
 var cachedVertexClientPromise;
@@ -4282,7 +4320,7 @@ var configureVertexEnvironment = () => {
   process.env.GOOGLE_CLOUD_LOCATION = "us";
 };
 var getVertexAuth = () => {
-  if (!fs2.existsSync(VERTEX_KEY_PATH)) {
+  if (!fs3.existsSync(VERTEX_KEY_PATH)) {
     throw new Error(`Service account key not found at ${VERTEX_KEY_PATH}`);
   }
   configureVertexEnvironment();
@@ -4458,8 +4496,7 @@ Do NOT include furniture.
 // services/text4dBackend.ts
 import { GoogleGenAI as GoogleGenAI3 } from "@google/genai";
 import { GoogleAuth as GoogleAuth3 } from "google-auth-library";
-import path4 from "path";
-import fs3 from "fs";
+import fs4 from "fs";
 
 // services/text4dImageConfig.ts
 var TEXT4D_LOW_LATENCY_GENERATION_CONFIG = {
@@ -4478,7 +4515,7 @@ var TEXT4D_LOW_LATENCY_GENERATION_CONFIG = {
 var TEXT4D_IMAGE_GEOMETRY_SYSTEM_INSTRUCTION = `The confirmed enclosed area and numeric fixed-property footprint are hard rendering constraints; match the bounding-box ratio within 2%. Preserve architectural logic, adjacency, privacy, circulation, daylight, and useful rooms. Use a full rectangular exterior shell only when the user prompt says RECTANGLE LOCKED. When it says CREATIVE UNLOCKED, preserve the area and fixed-property bounding box but freely choose an architecturally intelligent compact, L/U-shaped, stepped, offset, or other coherent footprint; never force a rectangle by default. Count balconies, terraces, porches, decks, steps, and railings inside the fixed-property box but outside enclosed area. Exclude annotations and every door leaf or swing arc from dimensions and area. Draw all architecture first, reserving clear white label zones. Give every named space exactly one full Design Brief room name in thin black text at 0.33 times normal room-label height; never abbreviate and never render room dimensions, room areas, label backgrounds, legends, or duplicate labels. Place a label only when its complete glyph box fits inside clear white floor space. No label glyph may touch, cross, obscure, or replace any wall, door leaf, swing arc, window, wall opening, column, stair, railing, fixture, or other architectural mark. Never render prompt instructions, pixel coordinates, bounding-box diagnostics, or wall-thickness notes as image text.`;
 
 // services/text4dBackend.ts
-var VERTEX_KEY_PATH2 = path4.resolve("ml/auto_plan/gcp_key.json");
+var VERTEX_KEY_PATH2 = resolveDefaultVertexKeyPath();
 var VERTEX_SCOPE2 = "https://www.googleapis.com/auth/cloud-platform";
 var cachedVertexAuth2;
 var cachedVertexClientPromise2;
@@ -4489,7 +4526,7 @@ var configureVertexEnvironment2 = () => {
   process.env.GOOGLE_CLOUD_LOCATION = "us";
 };
 var getVertexAuth2 = () => {
-  if (!fs3.existsSync(VERTEX_KEY_PATH2)) {
+  if (!fs4.existsSync(VERTEX_KEY_PATH2)) {
     throw new Error(`Service account key not found at ${VERTEX_KEY_PATH2}`);
   }
   configureVertexEnvironment2();
@@ -4668,8 +4705,7 @@ Do NOT include furniture.
 // services/text4eBackend.ts
 import { GoogleGenAI as GoogleGenAI4 } from "@google/genai";
 import { GoogleAuth as GoogleAuth4 } from "google-auth-library";
-import path5 from "path";
-import fs4 from "fs";
+import fs5 from "fs";
 
 // services/text4eImageConfig.ts
 var TEXT4E_LOW_LATENCY_GENERATION_CONFIG = {
@@ -4688,7 +4724,7 @@ var TEXT4E_LOW_LATENCY_GENERATION_CONFIG = {
 var TEXT4E_IMAGE_GEOMETRY_SYSTEM_INSTRUCTION = `The confirmed enclosed area and numeric fixed-property footprint are hard rendering constraints; match the bounding-box ratio within 2%. Preserve architectural logic, adjacency, privacy, circulation, daylight, and useful rooms. Use a full rectangular exterior shell only when the user prompt says RECTANGLE LOCKED. When it says CREATIVE UNLOCKED, preserve the area and fixed-property bounding box but freely choose an architecturally intelligent compact, L/U-shaped, stepped, offset, or other coherent footprint; never force a rectangle by default. Count balconies, terraces, porches, decks, steps, and railings inside the fixed-property box but outside enclosed area. Exclude annotations and every door leaf or swing arc from dimensions and area. Draw all architecture first, reserving clear white label zones. Give every named space exactly one full Design Brief room name in thin black text at 0.33 times normal room-label height; never abbreviate and never render room dimensions, room areas, label backgrounds, legends, or duplicate labels. Place a label only when its complete glyph box fits inside clear white floor space. No label glyph may touch, cross, obscure, or replace any wall, door leaf, swing arc, window, wall opening, column, stair, railing, fixture, or other architectural mark. Never render prompt instructions, pixel coordinates, bounding-box diagnostics, or wall-thickness notes as image text.`;
 
 // services/text4eBackend.ts
-var VERTEX_KEY_PATH3 = path5.resolve("ml/auto_plan/gcp_key.json");
+var VERTEX_KEY_PATH3 = resolveDefaultVertexKeyPath();
 var VERTEX_SCOPE3 = "https://www.googleapis.com/auth/cloud-platform";
 var cachedVertexAuth3;
 var cachedVertexClientPromise3;
@@ -4699,7 +4735,7 @@ var configureVertexEnvironment3 = () => {
   process.env.GOOGLE_CLOUD_LOCATION = "us";
 };
 var getVertexAuth3 = () => {
-  if (!fs4.existsSync(VERTEX_KEY_PATH3)) {
+  if (!fs5.existsSync(VERTEX_KEY_PATH3)) {
     throw new Error(`Service account key not found at ${VERTEX_KEY_PATH3}`);
   }
   configureVertexEnvironment3();
@@ -4878,8 +4914,7 @@ Do NOT include furniture.
 // services/text4fBackend.ts
 import { GoogleGenAI as GoogleGenAI5 } from "@google/genai";
 import { GoogleAuth as GoogleAuth5 } from "google-auth-library";
-import path6 from "path";
-import fs5 from "fs";
+import fs6 from "fs";
 
 // services/text4fImageConfig.ts
 var TEXT4F_LOW_LATENCY_GENERATION_CONFIG = {
@@ -4898,7 +4933,7 @@ var TEXT4F_LOW_LATENCY_GENERATION_CONFIG = {
 var TEXT4F_IMAGE_GEOMETRY_SYSTEM_INSTRUCTION = `The confirmed enclosed area and numeric fixed-property footprint are hard rendering constraints; match the bounding-box ratio within 2%. Preserve architectural logic, adjacency, privacy, circulation, daylight, and useful rooms. Use a full rectangular exterior shell only when the user prompt says RECTANGLE LOCKED. When it says CREATIVE UNLOCKED, preserve the area and fixed-property bounding box but freely choose an architecturally intelligent compact, L/U-shaped, stepped, offset, or other coherent footprint; never force a rectangle by default. Count balconies, terraces, porches, decks, steps, and railings inside the fixed-property box but outside enclosed area. Exclude annotations and every door leaf or swing arc from dimensions and area. Draw all architecture first, reserving clear white label zones. Give every named space exactly one full Design Brief room name in thin black text at 0.33 times normal room-label height; never abbreviate and never render room dimensions, room areas, label backgrounds, legends, or duplicate labels. Place a label only when its complete glyph box fits inside clear white floor space. No label glyph may touch, cross, obscure, or replace any wall, door leaf, swing arc, window, wall opening, column, stair, railing, fixture, or other architectural mark. Never render prompt instructions, pixel coordinates, bounding-box diagnostics, or wall-thickness notes as image text.`;
 
 // services/text4fBackend.ts
-var VERTEX_KEY_PATH4 = path6.resolve("ml/auto_plan/gcp_key.json");
+var VERTEX_KEY_PATH4 = resolveDefaultVertexKeyPath();
 var VERTEX_SCOPE4 = "https://www.googleapis.com/auth/cloud-platform";
 var cachedVertexAuth4;
 var cachedVertexClientPromise4;
@@ -4909,7 +4944,7 @@ var configureVertexEnvironment4 = () => {
   process.env.GOOGLE_CLOUD_LOCATION = "us";
 };
 var getVertexAuth4 = () => {
-  if (!fs5.existsSync(VERTEX_KEY_PATH4)) {
+  if (!fs6.existsSync(VERTEX_KEY_PATH4)) {
     throw new Error(`Service account key not found at ${VERTEX_KEY_PATH4}`);
   }
   configureVertexEnvironment4();
@@ -5088,8 +5123,7 @@ Do NOT include furniture.
 // services/text4gBackend.ts
 import { GoogleGenAI as GoogleGenAI6 } from "@google/genai";
 import { GoogleAuth as GoogleAuth6 } from "google-auth-library";
-import path7 from "path";
-import fs6 from "fs";
+import fs7 from "fs";
 
 // services/text4gImageConfig.ts
 var TEXT4G_LOW_LATENCY_GENERATION_CONFIG = {
@@ -5205,7 +5239,7 @@ var validateText4gMasterFloorplanGraph = (rawData) => {
 };
 
 // services/text4gBackend.ts
-var VERTEX_KEY_PATH5 = path7.resolve("ml/auto_plan/gcp_key.json");
+var VERTEX_KEY_PATH5 = resolveDefaultVertexKeyPath();
 var VERTEX_SCOPE5 = "https://www.googleapis.com/auth/cloud-platform";
 var cachedVertexAuth5;
 var cachedVertexClientPromise5;
@@ -5216,7 +5250,7 @@ var configureVertexEnvironment5 = () => {
   process.env.GOOGLE_CLOUD_LOCATION = "us";
 };
 var getVertexAuth5 = () => {
-  if (!fs6.existsSync(VERTEX_KEY_PATH5)) {
+  if (!fs7.existsSync(VERTEX_KEY_PATH5)) {
     throw new Error(`Service account key not found at ${VERTEX_KEY_PATH5}`);
   }
   configureVertexEnvironment5();
@@ -5517,8 +5551,7 @@ Do NOT include furniture.
 // services/text4hBackend.ts
 import { GoogleGenAI as GoogleGenAI7 } from "@google/genai";
 import { GoogleAuth as GoogleAuth7 } from "google-auth-library";
-import path8 from "path";
-import fs7 from "fs";
+import fs8 from "fs";
 
 // services/text4hImageConfig.ts
 var TEXT4H_IMAGE_MODEL = "gemini-3.1-flash-lite-image";
@@ -5637,7 +5670,7 @@ var validateText4hMasterFloorplanGraph = (rawData) => {
 };
 
 // services/text4hBackend.ts
-var VERTEX_KEY_PATH6 = path8.resolve("ml/auto_plan/gcp_key.json");
+var VERTEX_KEY_PATH6 = resolveDefaultVertexKeyPath();
 var VERTEX_SCOPE6 = "https://www.googleapis.com/auth/cloud-platform";
 var cachedVertexAuth6;
 var cachedVertexClientPromise6;
@@ -5648,7 +5681,7 @@ var configureVertexEnvironment6 = () => {
   process.env.GOOGLE_CLOUD_LOCATION = "us";
 };
 var getVertexAuth6 = () => {
-  if (!fs7.existsSync(VERTEX_KEY_PATH6)) {
+  if (!fs8.existsSync(VERTEX_KEY_PATH6)) {
     throw new Error(`Service account key not found at ${VERTEX_KEY_PATH6}`);
   }
   configureVertexEnvironment6();
@@ -6010,8 +6043,7 @@ Do NOT include furniture.
 // services/text4jBackend.ts
 import { GoogleGenAI as GoogleGenAI8 } from "@google/genai";
 import { GoogleAuth as GoogleAuth8 } from "google-auth-library";
-import path9 from "path";
-import fs8 from "fs";
+import fs9 from "fs";
 
 // services/text4jImageConfig.ts
 var TEXT4J_LOW_LATENCY_GENERATION_CONFIG = {
@@ -6138,7 +6170,7 @@ var decodeImagePayload = (value) => {
     bytes: Buffer.from(match?.[2] || value, "base64")
   };
 };
-var VERTEX_KEY_PATH7 = path9.resolve("ml/auto_plan/gcp_key.json");
+var VERTEX_KEY_PATH7 = resolveDefaultVertexKeyPath();
 var VERTEX_SCOPE7 = "https://www.googleapis.com/auth/cloud-platform";
 var cachedVertexAuth7;
 var cachedVertexClientPromise7;
@@ -6149,7 +6181,7 @@ var configureVertexEnvironment7 = () => {
   process.env.GOOGLE_CLOUD_LOCATION = "us";
 };
 var getVertexAuth7 = () => {
-  if (!fs8.existsSync(VERTEX_KEY_PATH7)) {
+  if (!fs9.existsSync(VERTEX_KEY_PATH7)) {
     throw new Error(`Service account key not found at ${VERTEX_KEY_PATH7}`);
   }
   configureVertexEnvironment7();
@@ -6519,8 +6551,7 @@ Do NOT include furniture.
 
 // services/aiRender/backend.ts
 import { GoogleAuth as GoogleAuth10 } from "google-auth-library";
-import path11 from "path";
-import fs10 from "fs";
+import fs11 from "fs";
 
 // services/aiRender/workflowRegistry.ts
 var RAW_WORKFLOWS = {
@@ -8250,17 +8281,16 @@ function getSample3DModelDataUri() {
 
 // services/aiRender/unifiedRendererClient.ts
 import { GoogleAuth as GoogleAuth9 } from "google-auth-library";
-import fs9 from "fs";
-import path10 from "path";
+import fs10 from "fs";
 var UNIFIED_RENDERER_MODELS = ["flux-2-pro", "stable-diffusion-xl"];
 var DEFAULT_TIMEOUT_MS = 3e5;
-var VERTEX_KEY_PATH8 = path10.resolve("ml/auto_plan/rendair_gcp_key.json");
+var VERTEX_KEY_PATH8 = resolveRenderVertexKeyPath();
 var getUnifiedRendererUrl = () => (process.env.UNIFIED_RENDERER_URL || "").trim().replace(/\/+$/, "");
 var isUnifiedRendererEnabledFor = (model, outputTypes) => !!getUnifiedRendererUrl() && UNIFIED_RENDERER_MODELS.includes(model) && outputTypes.includes("image/png");
 var cachedIdTokenAuth;
 var getAuthorizationHeader = async (audience) => {
   if (process.env.UNIFIED_RENDERER_REQUIRE_AUTH !== "true") return void 0;
-  cachedIdTokenAuth ||= fs9.existsSync(VERTEX_KEY_PATH8) ? new GoogleAuth9({ keyFile: VERTEX_KEY_PATH8 }) : new GoogleAuth9();
+  cachedIdTokenAuth ||= fs10.existsSync(VERTEX_KEY_PATH8) ? new GoogleAuth9({ keyFile: VERTEX_KEY_PATH8 }) : new GoogleAuth9();
   const client = await cachedIdTokenAuth.getIdTokenClient(audience);
   const headers = await client.getRequestHeaders();
   return typeof headers?.get === "function" ? headers.get("authorization") || void 0 : headers?.Authorization;
@@ -8324,12 +8354,12 @@ async function renderWithUnifiedRenderer(request) {
 }
 
 // services/aiRender/backend.ts
-var VERTEX_KEY_PATH9 = path11.resolve("ml/auto_plan/rendair_gcp_key.json");
+var VERTEX_KEY_PATH9 = resolveRenderVertexKeyPath();
 var VERTEX_SCOPE8 = "https://www.googleapis.com/auth/cloud-platform";
 var cachedVertexAuth8;
 var cachedVertexClientPromise8;
 var configureVertexEnvironment8 = () => {
-  if (fs10.existsSync(VERTEX_KEY_PATH9)) {
+  if (fs11.existsSync(VERTEX_KEY_PATH9)) {
     process.env.GOOGLE_APPLICATION_CREDENTIALS = VERTEX_KEY_PATH9;
     process.env.GOOGLE_GENAI_USE_VERTEXAI = "true";
     process.env.GOOGLE_CLOUD_PROJECT = "rendair-competitor";
@@ -8337,7 +8367,7 @@ var configureVertexEnvironment8 = () => {
   }
 };
 var getVertexAuth8 = () => {
-  if (!fs10.existsSync(VERTEX_KEY_PATH9)) {
+  if (!fs11.existsSync(VERTEX_KEY_PATH9)) {
     return null;
   }
   configureVertexEnvironment8();

@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+﻿import { GoogleGenAI } from "@google/genai";
 import { GoogleAuth } from "google-auth-library";
 import path from "path";
 import fs from "fs";
@@ -8,6 +8,7 @@ import {
 } from './text4jImageConfig';
 import { MediaResolution, ThinkingLevel, Type } from "@google/genai";
 import { validateText4jMasterFloorplanGraph } from './text4jMasterFloorplanData';
+import { resolveDefaultVertexKeyPath } from './vertexKeyFile';
 
 const STRUCTURED3D_BASE_URL = (process.env.STRUCTURED3D_URL || 'http://127.0.0.1:5000').replace(/\/$/, '');
 
@@ -22,7 +23,7 @@ const decodeImagePayload = (value: unknown) => {
   };
 };
 
-const VERTEX_KEY_PATH = path.resolve('ml/auto_plan/gcp_key.json');
+const VERTEX_KEY_PATH = resolveDefaultVertexKeyPath(); // repo key file locally, else GOOGLE_VERTEX_*_SA_KEY_JSON (Vercel)
 const VERTEX_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 let cachedVertexAuth: GoogleAuth | undefined;
 let cachedVertexClientPromise: ReturnType<GoogleAuth['getClient']> | undefined;

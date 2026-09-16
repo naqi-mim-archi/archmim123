@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+﻿import { GoogleGenAI } from "@google/genai";
 import { GoogleAuth } from "google-auth-library";
 import path from "path";
 import fs from "fs";
@@ -6,8 +6,9 @@ import {
   TEXT4E_IMAGE_GEOMETRY_SYSTEM_INSTRUCTION,
   TEXT4E_LOW_LATENCY_GENERATION_CONFIG,
 } from './text4eImageConfig';
+import { resolveDefaultVertexKeyPath } from './vertexKeyFile';
 
-const VERTEX_KEY_PATH = path.resolve('ml/auto_plan/gcp_key.json');
+const VERTEX_KEY_PATH = resolveDefaultVertexKeyPath(); // repo key file locally, else GOOGLE_VERTEX_*_SA_KEY_JSON (Vercel)
 const VERTEX_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 let cachedVertexAuth: GoogleAuth | undefined;
 let cachedVertexClientPromise: ReturnType<GoogleAuth['getClient']> | undefined;

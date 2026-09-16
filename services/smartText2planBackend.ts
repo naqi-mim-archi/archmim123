@@ -1,7 +1,8 @@
-import { GoogleGenAI } from "@google/genai";
+﻿import { GoogleGenAI } from "@google/genai";
 import { GoogleAuth } from "google-auth-library";
 import path from "path";
 import fs from "fs";
+import { resolveDefaultVertexKeyPath } from './vertexKeyFile';
 
 interface ApiRequest {
   method?: string;
@@ -27,7 +28,7 @@ export const routeSmartText2PlanApiRequest = async (
   try {
     const { designSummary, boundaryPoints } = request.body || {};
     
-    const keyPath = path.resolve('ml/auto_plan/gcp_key.json');
+    const keyPath = resolveDefaultVertexKeyPath(); // repo key file locally, else GOOGLE_VERTEX_*_SA_KEY_JSON (Vercel)
     if (!fs.existsSync(keyPath)) {
       throw new Error(`Service account key not found at ${keyPath}`);
     }

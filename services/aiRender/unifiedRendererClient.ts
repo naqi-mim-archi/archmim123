@@ -1,6 +1,7 @@
-import { GoogleAuth } from "google-auth-library";
+﻿import { GoogleAuth } from "google-auth-library";
 import fs from "fs";
 import path from "path";
+import { resolveRenderVertexKeyPath } from '../vertexKeyFile';
 
 // Client for the self-hosted Cloud Run GPU service (`unified-ai-renderer`).
 // Disabled unless UNIFIED_RENDERER_URL is set, so existing behaviour is unchanged by default.
@@ -9,7 +10,7 @@ import path from "path";
 export const UNIFIED_RENDERER_MODELS = ['flux-2-pro', 'stable-diffusion-xl'];
 
 const DEFAULT_TIMEOUT_MS = 300000;
-const VERTEX_KEY_PATH = path.resolve('ml/auto_plan/rendair_gcp_key.json');
+const VERTEX_KEY_PATH = resolveRenderVertexKeyPath(); // repo key file locally, else GOOGLE_VERTEX_*_SA_KEY_JSON (Vercel)
 
 export interface UnifiedRendererImage {
   mimeType: string;

@@ -3,7 +3,7 @@ import { defineConfig, loadEnv } from 'vite';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   for (const [key, value] of Object.entries(env)) {
-    const isServerKey = ['APS_', 'UNIFIED_RENDERER_', 'FIREBASE_', 'VITE_FIREBASE_', 'STRIPE_'].some(prefix => key.startsWith(prefix))
+    const isServerKey = ['APS_', 'UNIFIED_RENDERER_', 'FIREBASE_', 'VITE_FIREBASE_', 'STRIPE_', 'GOOGLE_VERTEX_'].some(prefix => key.startsWith(prefix))
       || ['APP_BASE_URL', 'ALLOW_ANONYMOUS_API', 'ALLOW_UNMETERED_API'].includes(key);
     if (isServerKey && value && !process.env[key]) process.env[key] = value;
   }
