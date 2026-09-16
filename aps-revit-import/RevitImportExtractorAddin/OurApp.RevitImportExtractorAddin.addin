@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="DBApplication">
+    <Name>OurApp APS Revit Import Extractor</Name>
+    <Assembly>.\Contents\OurApp.RevitImportExtractorAddin.dll</Assembly>
+    <AddInId>6B4D7460-7351-49A4-B11C-57A6E66B6E59</AddInId>
+    <FullClassName>OurApp.RevitImportExtractorAddin.App</FullClassName>
+    <VendorId>OURAPP</VendorId>
+    <VendorDescription>OurApp APS Revit DB extraction add-in for direct RVT import</VendorDescription>
+  </AddIn>
+</RevitAddIns>

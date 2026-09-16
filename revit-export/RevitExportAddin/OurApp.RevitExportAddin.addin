@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="DBApplication">
+    <Name>OurApp Revit Export Addin</Name>
+    <Assembly>.\Contents\OurApp.RevitExportAddin.dll</Assembly>
+    <AddInId>8D0C93B6-80A2-4814-8D0C-67C0DD3D5E35</AddInId>
+    <FullClassName>OurApp.RevitExportAddin.App</FullClassName>
+    <VendorId>OURAPP</VendorId>
+    <VendorDescription>OurApp direct RVT exporter for APS Revit Automation</VendorDescription>
+  </AddIn>
+</RevitAddIns>

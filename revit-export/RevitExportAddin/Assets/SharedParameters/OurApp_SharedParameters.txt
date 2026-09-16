@@ -1,0 +1,1 @@
+# Copy/sync from ../../shared-parameters/OurApp_SharedParameters.txt before packaging.

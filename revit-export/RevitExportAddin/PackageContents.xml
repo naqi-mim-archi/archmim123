@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage SchemaVersion="1.0" AutodeskProduct="Revit" ProductType="Application" Name="OurApp Revit Export Addin" AppVersion="1.0.0">
+  <CompanyDetails Name="OurApp" />
+  <Components>
+    <RuntimeRequirements OS="Win64" Platform="Revit" />
+    <ComponentEntry AppName="OurApp Revit Export Addin" ModuleName="./OurApp.RevitExportAddin.addin" AppDescription="Creates RVT files from direct OurApp export manifests" LoadOnRevitStartup="True" />
+  </Components>
+</ApplicationPackage>

@@ -1,0 +1,20 @@
+{
+  "sourceImage": "Image_Floorplan_01.jpeg",
+  "sourceJson": "JSON_Floorplan_01.json",
+  "requestedWidthMeters": 9.26,
+  "requestedDepthMeters": 11.36,
+  "doors": [
+    { "subtype": "double", "widthMeters": 1.829 },
+    { "subtype": "folding", "widthMeters": 1.5 },
+    { "subtype": "sliding", "widthMeters": 1.5 },
+    { "subtype": "single", "widthMeters": 0.914 },
+    { "subtype": "single", "widthMeters": 0.686 }
+  ],
+  "windows": [1.829, 2.4],
+  "wallOpenings": [1.92],
+  "columns": { "count": 4, "widthMeters": 0.45, "depthMeters": 0.45 },
+  "stairs": { "count": 1, "subtype": "linear", "widthMeters": 1.05, "stepCount": 8, "northIsDown": true },
+  "railings": { "count": 3, "subtype": "balcony" },
+  "slabs": { "count": 1, "includesBalcony": true },
+  "requiredRoomLabels": ["Balcony"]
+}

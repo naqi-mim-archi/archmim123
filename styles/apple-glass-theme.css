@@ -1,0 +1,287 @@
+:root {
+  color-scheme: light;
+  --apple-blue: #0071e3;
+  --apple-blue-hover: #0066cc;
+  --apple-blue-soft: #eaf3ff;
+  --apple-ink: #101114;
+  --apple-secondary: #5f6672;
+  --apple-line: rgba(16, 17, 20, 0.11);
+  --apple-surface: rgba(255, 255, 255, 0.94);
+  --apple-shadow: 0 18px 50px rgba(32, 70, 116, 0.12), 0 2px 8px rgba(16, 17, 20, 0.05);
+}
+
+html,
+body,
+button,
+input,
+select,
+textarea {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  color: var(--apple-ink);
+  background: #f5f9ff;
+}
+
+button,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+[role="button"]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid rgba(0, 113, 227, 0.58);
+  outline-offset: 2px;
+}
+
+::selection {
+  color: #fff;
+  background: var(--apple-blue);
+}
+
+.app-home {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(0, 113, 227, 0.13), transparent 31rem),
+    radial-gradient(circle at 82% 86%, rgba(0, 113, 227, 0.08), transparent 36rem),
+    linear-gradient(145deg, #fff 0%, #f7faff 50%, #eef5ff 100%);
+}
+
+.app-home::before,
+.app-home::after {
+  position: absolute;
+  z-index: -1;
+  width: 28rem;
+  height: 28rem;
+  content: "";
+  border: 1px solid rgba(0, 113, 227, 0.12);
+  border-radius: 50%;
+}
+
+.app-home::before {
+  top: -18rem;
+  right: -8rem;
+}
+
+.app-home::after {
+  bottom: -21rem;
+  left: -6rem;
+}
+
+.app-home-card {
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.84) !important;
+  box-shadow: var(--apple-shadow);
+  backdrop-filter: blur(18px) saturate(125%);
+  -webkit-backdrop-filter: blur(18px) saturate(125%);
+}
+
+.apple-app-shell > header,
+.apple-app-shell > div:first-of-type {
+  border-color: var(--apple-line);
+}
+
+/* Collapse decorative product colors into one professional blue system. */
+.apple-interface :is(
+  [class^="bg-indigo-"], [class*=" bg-indigo-"],
+  [class^="bg-violet-"], [class*=" bg-violet-"],
+  [class^="bg-purple-"], [class*=" bg-purple-"],
+  [class^="bg-cyan-"], [class*=" bg-cyan-"],
+  [class^="bg-sky-"], [class*=" bg-sky-"],
+  [class^="bg-teal-"], [class*=" bg-teal-"],
+  [class^="bg-amber-"], [class*=" bg-amber-"],
+  [class^="bg-orange-"], [class*=" bg-orange-"],
+  [class^="bg-yellow-"], [class*=" bg-yellow-"],
+  [class^="bg-pink-"], [class*=" bg-pink-"]
+) {
+  background-color: var(--apple-blue) !important;
+}
+
+.apple-interface :is(
+  [class~="bg-indigo-50"], [class~="bg-indigo-100"],
+  [class~="bg-violet-50"], [class~="bg-violet-100"],
+  [class~="bg-purple-50"], [class~="bg-purple-100"],
+  [class~="bg-cyan-50"], [class~="bg-cyan-100"],
+  [class~="bg-sky-50"], [class~="bg-sky-100"],
+  [class~="bg-teal-50"], [class~="bg-teal-100"],
+  [class~="bg-amber-50"], [class~="bg-amber-100"],
+  [class~="bg-orange-50"], [class~="bg-orange-100"],
+  [class~="bg-yellow-50"], [class~="bg-yellow-100"],
+  [class~="bg-pink-50"], [class~="bg-pink-100"]
+) {
+  background-color: var(--apple-blue-soft) !important;
+}
+
+.apple-interface :is(
+  [class^="text-indigo-"], [class*=" text-indigo-"],
+  [class^="text-violet-"], [class*=" text-violet-"],
+  [class^="text-purple-"], [class*=" text-purple-"],
+  [class^="text-cyan-"], [class*=" text-cyan-"],
+  [class^="text-sky-"], [class*=" text-sky-"],
+  [class^="text-teal-"], [class*=" text-teal-"],
+  [class^="text-amber-"], [class*=" text-amber-"],
+  [class^="text-orange-"], [class*=" text-orange-"],
+  [class^="text-yellow-"], [class*=" text-yellow-"],
+  [class^="text-pink-"], [class*=" text-pink-"]
+) {
+  color: var(--apple-blue) !important;
+}
+
+.apple-interface :is(
+  [class^="border-indigo-"], [class*=" border-indigo-"],
+  [class^="border-violet-"], [class*=" border-violet-"],
+  [class^="border-purple-"], [class*=" border-purple-"],
+  [class^="border-cyan-"], [class*=" border-cyan-"],
+  [class^="border-sky-"], [class*=" border-sky-"],
+  [class^="border-teal-"], [class*=" border-teal-"],
+  [class^="border-amber-"], [class*=" border-amber-"],
+  [class^="border-orange-"], [class*=" border-orange-"],
+  [class^="border-yellow-"], [class*=" border-yellow-"],
+  [class^="border-pink-"], [class*=" border-pink-"]
+) {
+  border-color: rgba(0, 113, 227, 0.28) !important;
+}
+
+.apple-interface :is(
+  [class^="ring-indigo-"], [class*=" ring-indigo-"],
+  [class^="ring-violet-"], [class*=" ring-violet-"],
+  [class^="ring-purple-"], [class*=" ring-purple-"],
+  [class^="ring-cyan-"], [class*=" ring-cyan-"],
+  [class^="ring-sky-"], [class*=" ring-sky-"],
+  [class^="ring-teal-"], [class*=" ring-teal-"],
+  [class^="ring-amber-"], [class*=" ring-amber-"]
+) {
+  --tw-ring-color: rgba(0, 113, 227, 0.42) !important;
+}
+
+.apple-interface :is(
+  [class^="from-indigo-"], [class*=" from-indigo-"],
+  [class^="from-violet-"], [class*=" from-violet-"],
+  [class^="from-purple-"], [class*=" from-purple-"],
+  [class^="from-cyan-"], [class*=" from-cyan-"],
+  [class^="from-sky-"], [class*=" from-sky-"],
+  [class^="from-teal-"], [class*=" from-teal-"],
+  [class^="from-amber-"], [class*=" from-amber-"]
+) {
+  --tw-gradient-from: var(--apple-blue) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgba(0, 113, 227, 0) var(--tw-gradient-to-position) !important;
+}
+
+.apple-interface :is(
+  [class^="to-indigo-"], [class*=" to-indigo-"],
+  [class^="to-violet-"], [class*=" to-violet-"],
+  [class^="to-purple-"], [class*=" to-purple-"],
+  [class^="to-cyan-"], [class*=" to-cyan-"],
+  [class^="to-sky-"], [class*=" to-sky-"],
+  [class^="to-teal-"], [class*=" to-teal-"],
+  [class^="to-amber-"], [class*=" to-amber-"]
+) {
+  --tw-gradient-to: #2997ff var(--tw-gradient-to-position) !important;
+}
+
+.apple-interface :is(
+  [class*="hover:bg-indigo-"], [class*="hover:bg-violet-"],
+  [class*="hover:bg-purple-"], [class*="hover:bg-cyan-"],
+  [class*="hover:bg-sky-"], [class*="hover:bg-teal-"],
+  [class*="hover:bg-amber-"], [class*="hover:bg-orange-"],
+  [class*="hover:bg-yellow-"], [class*="hover:bg-pink-"]
+):hover {
+  background-color: var(--apple-blue-hover) !important;
+}
+
+/* Render and Raster Canvas use the same light glass chrome as Drawing Canvas. */
+.render-canvas-theme {
+  color: var(--apple-ink) !important;
+  background: #f4f8fd !important;
+}
+
+.render-canvas-theme :is(
+  [class^="bg-slate-950"], [class*=" bg-slate-950"],
+  [class^="bg-slate-900"], [class*=" bg-slate-900"]
+) {
+  background-color: var(--apple-surface) !important;
+}
+
+.render-canvas-theme :is(
+  [class^="bg-slate-800"], [class*=" bg-slate-800"],
+  [class^="bg-slate-700"], [class*=" bg-slate-700"]
+) {
+  background-color: var(--apple-blue-soft) !important;
+}
+
+.render-canvas-theme :is(
+  [class^="border-slate-900"], [class*=" border-slate-900"],
+  [class^="border-slate-800"], [class*=" border-slate-800"],
+  [class^="border-slate-700"], [class*=" border-slate-700"]
+) {
+  border-color: var(--apple-line) !important;
+}
+
+.render-canvas-theme :is(
+  [class^="text-slate-100"], [class*=" text-slate-100"],
+  [class^="text-slate-200"], [class*=" text-slate-200"],
+  [class^="text-slate-300"], [class*=" text-slate-300"]
+) {
+  color: var(--apple-ink) !important;
+}
+
+.render-canvas-theme :is(
+  [class^="text-slate-400"], [class*=" text-slate-400"],
+  [class^="text-slate-500"], [class*=" text-slate-500"],
+  [class^="text-slate-600"], [class*=" text-slate-600"]
+) {
+  color: var(--apple-secondary) !important;
+}
+
+.render-canvas-theme [class~="text-white"] {
+  color: var(--apple-ink) !important;
+}
+
+.render-canvas-theme :is(
+  [class^="bg-blue-"], [class*=" bg-blue-"],
+  [class^="bg-indigo-"], [class*=" bg-indigo-"],
+  [class^="bg-violet-"], [class*=" bg-violet-"],
+  [class^="bg-purple-"], [class*=" bg-purple-"],
+  [class^="bg-cyan-"], [class*=" bg-cyan-"],
+  [class^="bg-sky-"], [class*=" bg-sky-"]
+)[class~="text-white"] {
+  color: #fff !important;
+}
+
+.render-canvas-theme :is(
+  [class*="hover:bg-slate-950"], [class*="hover:bg-slate-900"],
+  [class*="hover:bg-slate-800"], [class*="hover:bg-slate-700"]
+):hover {
+  color: var(--apple-blue) !important;
+  background-color: var(--apple-blue-soft) !important;
+}
+
+.render-canvas-theme :is(input, select, textarea) {
+  color: var(--apple-ink);
+  border-color: var(--apple-line);
+  background-color: rgba(255, 255, 255, 0.96);
+}
+
+.render-canvas-theme :is(input, textarea)::placeholder {
+  color: #8a929f;
+}
+
+.render-canvas-theme [class*="shadow-black"] {
+  box-shadow: 0 12px 30px rgba(32, 70, 116, 0.11) !important;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .app-home-card {
+    background: #fff !important;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}

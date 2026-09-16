@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Project Architecture & Technical Reference Handbook</title>
+  <!-- Beautiful Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <style>
+    /* Premium Modern Styling */
+    :root {
+      --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --color-bg: #fafafa;
+      --color-card: #ffffff;
+      --color-text: #1e293b;
+      --color-text-light: #64748b;
+      --color-border: #e2e8f0;
+      --color-primary: #2563eb;
+      --color-primary-light: #eff6ff;
+      --color-accent: #0f172a;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--color-bg);
+      color: var(--color-text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      padding: 3rem 1.5rem;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: var(--color-card);
+      border: 1px solid var(--color-border);
+      border-radius: 20px;
+      padding: 4rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.03);
+      position: relative;
+    }
+
+    /* Floating Print Button */
+    .print-button {
+      position: fixed;
+      top: 2rem;
+      right: 2rem;
+      background-color: var(--color-primary);
+      color: white;
+      border: none;
+      padding: 0.8rem 1.5rem;
+      border-radius: 12px;
+      font-family: var(--font-sans);
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+      transition: all 0.2s ease;
+      z-index: 1000;
+    }
+
+    .print-button:hover {
+      background-color: #1d4ed8;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
+    }
+
+    .print-button:active {
+      transform: translateY(1px);
+    }
+
+    /* Typography */
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 800;
+      color: var(--color-accent);
+      line-height: 1.2;
+      margin-bottom: 1rem;
+      letter-spacing: -0.03em;
+    }
+
+    .subtitle {
+      font-size: 1.1rem;
+      color: var(--color-text-light);
+      margin-bottom: 2rem;
+    }
+
+    hr {
+      border: 0;
+      border-top: 1px solid var(--color-border);
+      margin: 2.5rem 0;
+    }
+
+    h2 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--color-accent);
+      margin-top: 2.5rem;
+      margin-bottom: 1.2rem;
+      letter-spacing: -0.02em;
+      border-bottom: 2px solid #f1f5f9;
+      padding-bottom: 0.5rem;
+    }
+
+    h3 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--color-accent);
+      margin-top: 1.5rem;
+      margin-bottom: 0.8rem;
+    }
+
+    p {
+      margin-bottom: 1.2rem;
+      color: #334155;
+    }
+
+    ul, ol {
+      margin-bottom: 1.5rem;
+      padding-left: 1.5rem;
+    }
+
+    li {
+      margin-bottom: 0.5rem;
+      color: #334155;
+    }
+
+    /* Code Blocks */
+    pre {
+      background-color: #0f172a;
+      color: #f8fafc;
+      padding: 1.5rem;
+      border-radius: 12px;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      line-height: 1.5;
+      margin-bottom: 1.5rem;
+      border: 1px solid #1e293b;
+    }
+
+    code {
+      font-family: var(--font-mono);
+      font-size: 0.9em;
+      background-color: #f1f5f9;
+      color: #0f172a;
+      padding: 0.15rem 0.35rem;
+      border-radius: 4px;
+    }
+
+    pre code {
+      background-color: transparent;
+      color: inherit;
+      padding: 0;
+      border-radius: 0;
+      font-size: inherit;
+    }
+
+    /* Math Formulas block */
+    .formula {
+      background-color: #f8fafc;
+      border-left: 4px solid var(--color-primary);
+      padding: 1rem 1.5rem;
+      border-radius: 0 12px 12px 0;
+      font-family: var(--font-mono);
+      font-size: 0.9rem;
+      margin-bottom: 1.5rem;
+      color: #0f172a;
+    }
+
+    /* Callout Card */
+    .callout {
+      background-color: var(--color-primary-light);
+      border-left: 4px solid var(--color-primary);
+      padding: 1.5rem;
+      border-radius: 0 12px 12px 0;
+      margin: 1.5rem 0;
+    }
+
+    .callout p {
+      margin-bottom: 0;
+      color: #1e3a8a;
+      font-weight: 500;
+    }
+
+    /* Print Optimization Rules */
+    @media print {
+      body {
+        background-color: white;
+        padding: 0;
+        color: black;
+      }
+
+      .container {
+        border: none;
+        box-shadow: none;
+        padding: 0;
+        max-width: 100%;
+      }
+
+      .print-button {
+        display: none;
+      }
+
+      pre {
+        background-color: #f8fafc;
+        color: #0f172a;
+        border: 1px solid #e2e8f0;
+        page-break-inside: avoid;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
+
+      h1, h2, h3 {
+        page-break-after: avoid;
+      }
+
+      .callout, .formula {
+        page-break-inside: avoid;
+      }
+
+      @page {
+        margin: 20mm;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Instant Browser Print/Save to PDF Button -->
+  <button class="print-button" onclick="window.print()">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+    Save as PDF
+  </button>
+
+  <div class="container">
+    <h1>Project Architecture & Technical Reference Handbook</h1>
+    <p class="subtitle">Complete structural, state, vector coordinate, and algorithmic layout guide.</p>
+    
+    <hr>
+
+    <h2>1. Directory Structure Overview</h2>
+    <p>The project is structured as a modular React single-page application built on Vite and TypeScript, employing a canvas-based vector draft environment coupled with a Three.js 3D viewport.</p>
+    
+    <pre><code>/
+├── App.tsx                     # Global layout orchestrator, state manager, and UI container.
+├── index.tsx                   # Render entry-point mounting the App.
+├── index.html                  # Webpage hosting context.
+├── types.ts                    # Global TypeScript definitions, enums, and interfaces.
+├── constants.tsx               # Theme definitions, tool configurations, and typographic templates.
+├── metadata.json               # Application descriptor, capabilities list, and web sandbox permissions.
+├── package.json                # Project dependencies, compile directives, and script triggers.
+│
+├── components/                 # React UI Components
+│   ├── Canvas.tsx              # Core 2D interactive drafting canvas using HTML5 2D Context.
+│   ├── Viewer3D.tsx            # Three.js-powered responsive webGL 3D architectural viewer.
+│   ├── Toolbar.tsx             # Interactive action arrays and drawing toolbars.
+│   ├── PropertiesPanel.tsx     # Context-aware geometric and procedural property inspector.
+│   ├── ProceduralWizard.tsx    # Standard generative layout configuration modal.
+│   ├── BlockEditor.tsx         # Custom vector boundary editor for urban blocks and zoning.
+│   ├── UrbanWizard.tsx         # Generative massing, setback, and envelope generator.
+│   └── GenerativeWizard.tsx    # Multi-step AI architectural prompt controller.
+│
+├── services/                   # Business Logic, Parsers, and Generators
+│   ├── proceduralService.ts    # Standard layout, polygon-decomposition, and zoning logic.
+│   ├── proceduralVariants.ts   # Layout definitions, typology sub-types, and constraints.
+│   ├── furnishService.ts       # Floorplan furniture, fixture, and appliance distribution engine.
+│   ├── vectorDxf.ts            # High-fidelity CAD exporter (Block, Insert, Layer, and Texts).
+│   ├── dxfImportService.ts     # DXF Parser, unit metadata resolver, and parallel-wall detector.
+│   ├── vectorPdf.ts            # Vector-based client-side PDF blueprint compiler.
+│   ├── aiClient.ts             # Server-proxied LLM prompt client (Gemini-compliant).
+│   ├── aiDxfService.ts         # LLM-assisted vector vectorization and design assistant.
+│   ├── fusionService.ts        # Algorithmic merge layers for combining floorplan drafts.
+│   ├── urbanService.ts         # Computational parceling, site planning, and road-grid solvers.
+│   └── objParser.ts            # Client-side Wavefront .obj parser for 3D asset rendering.
+│
+└── smart-procedural/           # Advanced Procedural Architecture Engine (New Additions)
+    ├── smartProceduralService.ts  # SmartProceduralLayoutEngine for multi-criterion generative layout.
+    ├── smartProceduralVariants.ts # SMART_HANDBOOK_VARIANTS specifying high-density planning structures.
+    ├── smartFurnishService.ts  # SmartProceduralFurnishEngine with customized orientation solvers.
+    └── SmartProceduralWizard.tsx  # Dynamic configuration panel for complex layouts.</code></pre>
+
+    <hr>
+
+    <h2>2. Core Architectural Design & State</h2>
+    
+    <h3>2.1 State Management (Single Source of Truth)</h3>
+    <p>The global state resides in <code>App.tsx</code> and is structured using the following main variables:</p>
+    <ul>
+      <li><strong><code>project</code></strong>: Holds the document tree, including:
+        <ul>
+          <li><code>elements</code>: A flat array of <code>ArchElement</code> models (walls, windows, doors, stairs, furniture, floors, ceilings, dimensions).</li>
+          <li><code>levels</code>: Floor elevation list, heights, and visibility flags.</li>
+          <li><code>settings3D</code>: 3D rendering profiles, grid overlays, shadows, and environment templates.</li>
+        </ul>
+      </li>
+      <li><strong><code>editorState</code></strong>: Holds transient interactive UI state:
+        <ul>
+          <li><code>activeTool</code>: Active tool pointer (e.g., <code>'wall'</code>, <code>'move'</code>, <code>'select'</code>, <code>'smart-procedural-boundary'</code>).</li>
+          <li><code>selectedIds</code>: Selected element GUIDs.</li>
+          <li><code>zoom</code> / <code>pan</code>: 2D viewport pan/zoom ratios.</li>
+          <li><code>unitSystem</code>: <code>'imperial'</code> (Inches/Feet) or <code>'metric'</code> (Meters).</li>
+          <li><code>multiPointBuffer</code>: Poly-line coordinate collection prior to commitment.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3>2.2 Undo / Redo Mechanism</h3>
+    <p>Uses an immutable state stack (<code>history</code> / <code>future</code>) in <code>App.tsx</code>. State transitions are captured by <code>pushHistory(updatedProject)</code> to store snapshots of the core <code>project</code> structure, facilitating multi-step rollback.</p>
+
+    <hr>
+
+    <h2>3. Coordinate Systems & Math Operations</h2>
+    <p>Drafting operates over three primary coordinate spaces:</p>
+    <ol>
+      <li><strong>World Space</strong>: Pure decimal coordinate vectors (<code>x</code>, <code>y</code>) representing real-world feet/inches or meters.</li>
+      <li><strong>Screen Space</strong>: Target pixel space in the browser canvas. Uses linear transforms:</li>
+    </ol>
+    
+    <div class="formula">
+      ScreenX = (WorldX - PanX) * Zoom<br>
+      ScreenY = (WorldY - PanY) * Zoom
+    </div>
+    
+    <ol start="3">
+      <li><strong>Internal Block Space</strong>: Relative to local anchors (<code>x0</code>, <code>y0</code>) and rotations (&theta;) to permit modular object nesting during DXF/PDF compile passes.</li>
+    </ol>
+
+    <h3>Vector Calculations</h3>
+    <ul>
+      <li><strong>Advanced Snapping</strong>: Managed in <code>Canvas.tsx</code> with high-performance proximity indices. Employs orthogonal alignment constraints (locks mouse angles to 0°, 45°, 90°) and element intersection/edge extension trackers.</li>
+      <li><strong>Point-in-Polygon Tests</strong>: Employs ray-casting crossings algorithms to identify space containment, crucial for assigning rooms to boundaries and generating furniture inside a procedural floorplan.</li>
+    </ul>
+
+    <hr>
+
+    <h2>4. Key Subsystems and Engines</h2>
+
+    <h3>4.1 Interactive 2D Canvas Engine (<code>components/Canvas.tsx</code>)</h3>
+    <p>A custom vector-graphics renderer leveraging HTML5 2D Canvas contexts. It handles complex continuous mouse interaction loops:</p>
+    <ul>
+      <li><strong>Draw Loops</strong>: Renders dynamic grid overlays, dimensions, wall thicknesses, stair risers, and door swings.</li>
+      <li><strong>Transform Overlays</strong>: Computes bounding boxes for grouped elements, supporting live drag, copy, duplication, and precise alignment.</li>
+      <li><strong>Ghost Preview Rendering</strong>: While drawing, a virtual "ghost" representation is rendered in real-time, querying layout preview engines to display real-time feedback of interior floorplans before committing them.</li>
+    </ul>
+
+    <h3>4.2 Three.js 3D Viewer (<code>components/Viewer3D.tsx</code>)</h3>
+    <p>Compiles flat vector models into rich 3D geometries in real-time.</p>
+    <ul>
+      <li><strong>Wall Extrusion</strong>: Converts 2D wall lines with thickness and height properties into full 3.5D volumetric meshes with custom window and door cutouts.</li>
+      <li><strong>Element Filtering</strong>: A strict exclusion filter (<code>SKIP</code>) filters out non-physical drafting helper elements (<code>'dimension'</code>, <code>'line'</code>, <code>'gridline'</code>, etc.) to keep render passes clean.</li>
+      <li><strong>Asset Instancing</strong>: Maps furniture nodes into pre-loaded 3D meshes using local transform matrices.</li>
+    </ul>
+
+    <h3>4.3 Computational Layout & Procedural Engines</h3>
+    
+    <h3>Procedural Layout Engine (<code>services/proceduralService.ts</code>)</h3>
+    <p>Generates logical sub-rooms, partitions, hallways, and structural elements inside a closed bounding polygon. Decomposes large shapes into spatial functional envelopes (<code>public</code>, <code>core</code>, <code>private</code>, <code>circulation</code>).</p>
+
+    <h3>Smart Procedural Layout Suite (<code>smart-procedural/</code>)</h3>
+    <ul>
+      <li><strong><code>smartProceduralService.ts</code></strong>: Implements <code>SmartProceduralLayoutEngine</code> using custom multi-criteria layouts, seed-based stability, and responsive area ratios.</li>
+      <li><strong><code>smartProceduralVariants.ts</code></strong>: Contains <code>SMART_HANDBOOK_VARIANTS</code> supporting high-density, multi-room programmatic compositions.</li>
+      <li><strong><code>smartFurnishService.ts</code></strong>: Employs oriented directional ray-solvers. It searches for adjacent wall vectors inside individual generated sub-zones to align furniture, desks, and kitchen blocks correctly, avoiding overlapping exits or windows.</li>
+      <li><strong><code>SmartProceduralWizard.tsx</code></strong>: A bespoke modal interface providing fine-grained planning sliders, flow controls, and priority selectors.</li>
+    </ul>
+
+    <hr>
+
+    <h2>5. Export / Import Pipelines</h2>
+
+    <h3>5.1 DXF Exporter (<code>services/vectorDxf.ts</code>)</h3>
+    <p>Converts 2D elements into standard DXF CAD formats.</p>
+    <ul>
+      <li><strong>Selectable AutoCAD Groups</strong>: Outputs groups as discrete <code>BLOCK</code> and <code>INSERT</code> instructions, allowing the draftsman to select entire structures cleanly as a single entity in AutoCAD.</li>
+      <li><strong>Text Placements</strong>: Corrects world-space elevation text layouts to project smoothly relative to parent block frames.</li>
+    </ul>
+
+    <h3>5.2 DXF Importer (<code>services/dxfImportService.ts</code>)</h3>
+    <p>Reads standard DXF formats back into clean, editable vector structures.</p>
+    <ul>
+      <li><strong>Unit Metadata Decoupling</strong>: Structural geometry scale uses explicit coordinate units defined in the import UI, ignoring standard <code>$INSUNITS</code> overrides.</li>
+      <li><strong>Parallel Wall Solver</strong>: Recognizes double-line pairs and compiles them into solid editable 2D wall elements.</li>
+    </ul>
+
+    <h3>5.3 Vector PDF Compiler (<code>services/vectorPdf.ts</code>)</h3>
+    <p>Outputs structured vectors to high-resolution vector PDF blueprints, maintaining high line-weights, colors, text alignment, and scale indicators.</p>
+
+    <hr>
+
+    <h2>6. How to Continue Editing in Antigravity</h2>
+    <p>This workspace is primed for rapid development in Antigravity. When adding or revising logic:</p>
+    <ol>
+      <li><strong>Adding New Tools</strong>: Modify <code>DRAWING_TOOLS</code> in <code>App.tsx</code> and map them inside <code>components/Toolbar.tsx</code> and the draw loops of <code>components/Canvas.tsx</code>.</li>
+      <li><strong>Expanding Program Typologies</strong>: Add schemas to <code>SMART_HANDBOOK_VARIANTS</code> inside <code>/smart-procedural/smartProceduralVariants.ts</code> to enrich the layout generator.</li>
+      <li><strong>Enhancing DXF/PDF Structuring</strong>: Keep layers strictly categorized inside <code>services/vectorDxf.ts</code> to ensure clean importing and exporting.</li>
+    </ol>
+
+    <div class="callout">
+      <p>Tip: When working on the layout engine or asset catalogs, ensure that any added assets are strictly registered in both the 2D Canvas renderer and the 3D Viewer mesh loader map to preserve visual alignment between views.</p>
+    </div>
+  </div>
+
+</body>
+</html>

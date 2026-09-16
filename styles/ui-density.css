@@ -1,0 +1,12 @@
+:root {
+  /* Compact the rem-based design system while retaining crisp native pixels. */
+  --app-ui-density: 0.75;
+  font-size: calc(16px * var(--app-ui-density));
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+}

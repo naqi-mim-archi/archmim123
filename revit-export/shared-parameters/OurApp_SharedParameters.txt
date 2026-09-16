@@ -1,0 +1,23 @@
+# This is a source-controlled shared parameter definition seed for the Revit export workflow.
+# Regenerate/bind it inside the controlled Revit export template before APS deployment.
+*META	VERSION	MINVERSION
+META	2	1
+*GROUP	ID	NAME
+GROUP	1	OurApp Revit Export
+*PARAM	GUID	NAME	DATATYPE	DATACATEGORY	GROUP	VISIBLE	DESCRIPTION	USERMODIFIABLE	HIDEWHENNOVALUE
+PARAM	7f7e1f8a-6e1f-41e6-8af9-c06c1f336101	OurApp_ProjectId	TEXT		1	1	Source project identifier	1	0
+PARAM	7f7e1f8a-6e1f-41e6-8af9-c06c1f336102	OurApp_ElementId	TEXT		1	1	Source native element identifier	1	0
+PARAM	7f7e1f8a-6e1f-41e6-8af9-c06c1f336103	OurApp_TypeId	TEXT		1	1	Source type identifier	1	0
+PARAM	7f7e1f8a-6e1f-41e6-8af9-c06c1f336104	OurApp_NativeElementType	TEXT		1	1	Source native element type	1	0
+PARAM	7f7e1f8a-6e1f-41e6-8af9-c06c1f336105	OurApp_SourceLevelId	TEXT		1	1	Source level identifier	1	0
+PARAM	7f7e1f8a-6e1f-41e6-8af9-c06c1f336106	OurApp_SourceGroupId	TEXT		1	1	Source group identifier	1	0
+PARAM	7f7e1f8a-6e1f-41e6-8af9-c06c1f336107	OurApp_ExportVersion	TEXT		1	1	Export version	1	0
+PARAM	7f7e1f8a-6e1f-41e6-8af9-c06c1f336108	OurApp_ExportedAt	TEXT		1	1	Export timestamp	1	0
+PARAM	7f7e1f8a-6e1f-41e6-8af9-c06c1f336109	OurApp_MaterialName	TEXT		1	1	Source material name	1	0
+PARAM	7f7e1f8a-6e1f-41e6-8af9-c06c1f336110	OurApp_Width	LENGTH		1	1	Source width	1	0
+PARAM	7f7e1f8a-6e1f-41e6-8af9-c06c1f336111	OurApp_Depth	LENGTH		1	1	Source depth	1	0
+PARAM	7f7e1f8a-6e1f-41e6-8af9-c06c1f336112	OurApp_Height	LENGTH		1	1	Source height	1	0
+PARAM	7f7e1f8a-6e1f-41e6-8af9-c06c1f336113	OurApp_Thickness	LENGTH		1	1	Source thickness	1	0
+PARAM	7f7e1f8a-6e1f-41e6-8af9-c06c1f336114	OurApp_Rotation	NUMBER		1	1	Source rotation in degrees	1	0
+PARAM	7f7e1f8a-6e1f-41e6-8af9-c06c1f336115	OurApp_IfcGuid	TEXT		1	1	IFC GlobalId copied for traceability only	1	0
+

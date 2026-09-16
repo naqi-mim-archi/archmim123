@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RevitTargetFramework Condition="'$(RevitTargetFramework)' == ''">net8.0-windows</RevitTargetFramework>
+    <TargetFramework>$(RevitTargetFramework)</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <UseWPF>false</UseWPF>
+    <AssemblyName>OurApp.RevitExportAddin</AssemblyName>
+    <RootNamespace>OurApp.RevitExportAddin</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <DesignAutomationRevitVersion Condition="'$(DesignAutomationRevitVersion)' == ''">2026.0.0</DesignAutomationRevitVersion>
+    <RevitApiPackageVersion Condition="'$(RevitApiPackageVersion)' == ''">2026.0.0</RevitApiPackageVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Autodesk.Forge.DesignAutomation.Revit" Version="$(DesignAutomationRevitVersion)" />
+    <PackageReference Include="Revit_All_Main_Versions_API_x64" Version="$(RevitApiPackageVersion)" ExcludeAssets="runtime" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="PackageContents.xml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="OurApp.RevitExportAddin.addin" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

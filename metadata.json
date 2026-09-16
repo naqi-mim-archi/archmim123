@@ -1,0 +1,8 @@
+{
+  "name": "Remix: 2706-01 - margalla",
+  "description": "A comprehensive 3D urban design and generative planning application with procedural site layout and AI-powered workspace tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
