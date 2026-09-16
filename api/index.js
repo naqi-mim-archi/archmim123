@@ -1010,7 +1010,7 @@ var routeBillingApiRequest = async (request, response) => {
     });
     response.status(200).json(session);
   } catch (err) {
-    response.status(err?.statusCode || 500).json({ error: err?.message || "Checkout could not be started." });
+    response.status(err?.statusCode === 400 ? 400 : 502).json({ error: err?.message || "Checkout could not be started." });
   }
   return true;
 };

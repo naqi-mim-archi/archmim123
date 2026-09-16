@@ -101,7 +101,9 @@ export const routeBillingApiRequest = async (request: BillingRequest, response: 
     });
     response.status(200).json(session);
   } catch (err: any) {
-    response.status(err?.statusCode || 500).json({ error: err?.message || 'Checkout could not be started.' });
+    // Never forward an upstream status: the browser treats 401 as a dead session (and 402 as a token shortfall),
+    // so a Stripe auth failure here would surface as an unescapable sign-in prompt instead of the real error.
+    response.status(err?.statusCode === 400 ? 400 : 502).json({ error: err?.message || 'Checkout could not be started.' });
   }
   return true;
 };
