@@ -2,13 +2,15 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Cloud, FolderOpen, Loader2, Save, Trash2, X } from 'lucide-react';
 import type { Project } from '../types';
 import {
+  ConcurrentEditError,
   deleteProject,
   listProjects,
-  loadProject,
+  loadProjectWithRole,
   saveProject,
   StorageLimitError,
   type CloudProjectSummary,
 } from '../services/firebase/projectsService';
+import { canDelete, canEdit, canShare, type ProjectRole } from '../services/firebase/shareAccess';
 import { renderProjectThumbnail } from '../services/firebase/projectThumbnail';
 import { getFirebaseAuthErrorMessage } from '../services/firebase/authService';
 
@@ -16,10 +18,13 @@ interface ProjectsPanelProps {
   isOpen: boolean;
   onClose: () => void;
   uid: string | null;
+  userName?: string | null;
   currentProject: Project | null;
   currentProjectId: string | null;
-  onSaved: (projectId: string) => void;
-  onOpenProject: (project: Project, projectId: string) => void;
+  currentProjectRole?: ProjectRole;
+  currentProjectLoadedAtMs?: number | null;
+  onSaved: (projectId: string, updatedAtMs?: number | null) => void;
+  onOpenProject: (project: Project, projectId: string, role?: ProjectRole, updatedAtMs?: number | null) => void;
 }
 
 const sectionLabel = 'text-[10px] font-bold text-slate-400 uppercase tracking-widest';
@@ -30,12 +35,17 @@ const formatDate = (date: Date | null) =>
 const describeError = (err: any) =>
   err instanceof StorageLimitError ? err.message : err?.code ? getFirebaseAuthErrorMessage(err) : err?.message || String(err);
 
-const ProjectsPanel: React.FC<ProjectsPanelProps> = ({ isOpen, onClose, uid, currentProject, currentProjectId, onSaved, onOpenProject }) => {
+const ProjectsPanel: React.FC<ProjectsPanelProps> = ({
+  isOpen, onClose, uid, userName, currentProject, currentProjectId,
+  currentProjectRole, currentProjectLoadedAtMs, onSaved, onOpenProject,
+}) => {
   const [projects, setProjects] = useState<CloudProjectSummary[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Someone else saved while this copy was open: the user chooses what happens next.
+  const [conflict, setConflict] = useState<{ editorName: string } | null>(null);
 
   const refresh = useCallback(async () => {
     if (!uid) return;
@@ -61,33 +71,42 @@ const ProjectsPanel: React.FC<ProjectsPanelProps> = ({ isOpen, onClose, uid, cur
   if (!isOpen || !uid) return null;
 
   const isUpdate = !!currentProjectId && !!projects?.some(project => project.id === currentProjectId);
+  const isViewerOnCurrent = !!currentProjectId && currentProjectRole != null && !canEdit(currentProjectRole);
 
-  const handleSave = async () => {
-    if (!currentProject) return;
+  const save = async (options: { force?: boolean; asCopy?: boolean } = {}) => {
+    if (!currentProject || !uid) return;
     setBusy('save');
     setError(null);
     setNotice(null);
     try {
       const { projectId } = await saveProject(uid, currentProject, {
-        projectId: currentProjectId,
-        name: currentProject.name,
+        projectId: options.asCopy ? null : currentProjectId,
+        name: options.asCopy ? `${currentProject.name || 'Untitled Plan'} (copy)` : currentProject.name,
         thumbnailDataUrl: renderProjectThumbnail(currentProject),
+        expectedUpdatedAtMs: options.force || options.asCopy ? null : currentProjectLoadedAtMs ?? null,
+        editorName: userName || 'Someone',
       });
-      onSaved(projectId);
-      setNotice(isUpdate ? 'Project updated.' : 'Project saved to your account.');
+      setConflict(null);
+      onSaved(projectId, Date.now());
+      setNotice(options.asCopy ? 'Saved as a new copy.' : isUpdate ? 'Project updated.' : 'Project saved to your account.');
       await refresh();
     } catch (err) {
-      setError(describeError(err));
+      if (err instanceof ConcurrentEditError) setConflict({ editorName: err.editorName });
+      else setError(describeError(err));
     } finally {
       setBusy(null);
     }
   };
 
+  const handleSave = () => save();
+
   const handleOpen = async (summary: CloudProjectSummary) => {
     setBusy(summary.id);
     setError(null);
+    setConflict(null);
     try {
-      onOpenProject(await loadProject(uid, summary.id), summary.id);
+      const loaded = await loadProjectWithRole(uid, summary.id);
+      onOpenProject(loaded.project, summary.id, loaded.role, loaded.updatedAtMs);
       onClose();
     } catch (err) {
       setError(describeError(err));
@@ -126,7 +145,7 @@ const ProjectsPanel: React.FC<ProjectsPanelProps> = ({ isOpen, onClose, uid, cur
         </div>
 
         <div className="overflow-y-auto p-6 space-y-4">
-          {currentProject && (
+          {currentProject && !isViewerOnCurrent && (
             <button
               onClick={handleSave}
               disabled={!!busy}
@@ -135,6 +154,28 @@ const ProjectsPanel: React.FC<ProjectsPanelProps> = ({ isOpen, onClose, uid, cur
               {busy === 'save' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               {isUpdate ? `Save changes to "${currentProject.name || 'Untitled Plan'}"` : 'Save current project'}
             </button>
+          )}
+
+          {currentProject && isViewerOnCurrent && (
+            <button
+              onClick={() => save({ asCopy: true })}
+              disabled={!!busy}
+              className="w-full py-4 bg-white border border-slate-200 text-slate-700 rounded-2xl font-bold hover:bg-slate-50 disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {busy === 'save' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Duplicate to my account
+            </button>
+          )}
+
+          {conflict && (
+            <div className="space-y-2 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+              <p>{conflict.editorName} saved changes to this project after you opened it. Saving now would replace their version.</p>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => save({ force: true })} disabled={!!busy} className="px-3 py-1.5 rounded-xl bg-amber-600 text-white font-bold hover:bg-amber-700 disabled:opacity-50">Overwrite anyway</button>
+                <button onClick={() => save({ asCopy: true })} disabled={!!busy} className="px-3 py-1.5 rounded-xl bg-white border border-amber-200 font-bold hover:bg-amber-100/60 disabled:opacity-50">Save as a copy</button>
+                <button onClick={() => { setConflict(null); void handleOpen({ id: currentProjectId! } as CloudProjectSummary); }} disabled={!!busy} className="px-3 py-1.5 rounded-xl bg-white border border-amber-200 font-bold hover:bg-amber-100/60 disabled:opacity-50">Reload theirs</button>
+              </div>
+            </div>
           )}
 
           {notice && <div className="text-xs font-medium text-slate-600 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2">{notice}</div>}
@@ -161,11 +202,18 @@ const ProjectsPanel: React.FC<ProjectsPanelProps> = ({ isOpen, onClose, uid, cur
                     </div>
                     <div className="px-3 pt-2">
                       <div className="text-xs font-bold text-slate-800 truncate">{summary.name}</div>
-                      <div className="text-[10px] font-medium text-slate-400">{formatDate(summary.updatedAt)}</div>
+                      <div className="text-[10px] font-medium text-slate-400 flex items-center gap-1.5">
+                        <span>{formatDate(summary.updatedAt)}</span>
+                        {summary.role !== 'owner' && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 font-bold">
+                            {summary.role === 'editor' ? 'Shared · can edit' : 'Shared · view'}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </button>
                   <div className="px-3 pb-2 pt-1 flex justify-end">
-                    {confirmDeleteId === summary.id ? (
+                    {!canDelete(summary.role) ? null : confirmDeleteId === summary.id ? (
                       <div className="flex items-center gap-2">
                         <button onClick={() => setConfirmDeleteId(null)} className="text-[10px] font-bold text-slate-500 hover:underline">Cancel</button>
                         <button onClick={() => handleDelete(summary)} disabled={!!busy} className="text-[10px] font-bold text-red-600 hover:underline disabled:opacity-50">

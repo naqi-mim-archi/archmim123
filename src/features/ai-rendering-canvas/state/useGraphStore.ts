@@ -6,7 +6,8 @@ import {
   PendingConnection, 
   HubType, 
   NodeType,
-  NodeOutputItem 
+  NodeOutputItem,
+  GraphSnapshot
 } from '../types/graph';
 import { GraphEngine, DEFAULT_NODE_WIDTH, DEFAULT_NODE_HEIGHT } from '../core/GraphEngine';
 
@@ -64,6 +65,13 @@ export interface GraphStore {
   setViewport: (viewport: GraphViewport | ((prev: GraphViewport) => GraphViewport)) => void;
   fitToView: (containerWidth: number, containerHeight: number) => void;
   resetGraph: () => void;
+
+  // Session save / restore (see services/firebase/renderSessionsService.ts)
+  getSnapshot: () => GraphSnapshot & { viewport: GraphViewport };
+  hydrate: (
+    snapshot: { nodes: CanvasNodeData[]; edges: CanvasEdge[]; viewport?: GraphViewport; selectedNodeId?: string | null },
+    options?: { keepHistory?: boolean },
+  ) => void;
 }
 
 export const createInitialBlankNode = (pos = { x: 80, y: 80 }): CanvasNodeData => ({
@@ -79,11 +87,22 @@ export const createInitialBlankNode = (pos = { x: 80, y: 80 }): CanvasNodeData =
   createdAt: Date.now(),
 });
 
-interface GraphSnapshot {
-  nodes: CanvasNodeData[];
-  edges: CanvasEdge[];
-  selectedNodeId: string | null;
-}
+// Builds a node from partial data. Every supplied field is kept: an earlier whitelist here
+// silently dropped inputImageUrl, uploadedImages, controlNet settings, aspect ratio and the
+// directive fields, which also broke restoring a saved session.
+export const buildNode = (data: Partial<CanvasNodeData> & { title: string; type: NodeType }): CanvasNodeData => ({
+  ...data,
+  id: data.id || 'node_' + Math.random().toString(36).substring(2, 9),
+  type: data.type,
+  title: data.title,
+  position: data.position || { x: 100, y: 100 },
+  width: data.width || DEFAULT_NODE_WIDTH,
+  height: data.height || DEFAULT_NODE_HEIGHT,
+  outputs: data.outputs || (data.imageUrl ? [{ id: 'out_1', url: data.imageUrl, type: 'image' }] : []),
+  activeVariantIndex: data.activeVariantIndex || 0,
+  status: data.status || 'idle',
+  createdAt: data.createdAt || Date.now(),
+});
 
 export function useGraphStore(initialNodes: CanvasNodeData[] = []): GraphStore {
   const [nodes, setNodes] = useState<CanvasNodeData[]>(initialNodes);
@@ -102,6 +121,8 @@ export function useGraphStore(initialNodes: CanvasNodeData[] = []): GraphStore {
   edgesRef.current = edges;
   const selectedNodeIdRef = useRef(selectedNodeId);
   selectedNodeIdRef.current = selectedNodeId;
+  const viewportRef = useRef(viewport);
+  viewportRef.current = viewport;
 
   // Push Snapshot before destructive or state-changing action
   const pushSnapshot = useCallback(() => {
@@ -165,32 +186,8 @@ export function useGraphStore(initialNodes: CanvasNodeData[] = []): GraphStore {
   // Add Node
   const addNode = useCallback((data: Partial<CanvasNodeData> & { title: string; type: NodeType }): CanvasNodeData => {
     pushSnapshot();
-    const id = data.id || 'node_' + Math.random().toString(36).substring(2, 9);
-    const newNode: CanvasNodeData = {
-      id,
-      type: data.type,
-      title: data.title,
-      subtitle: data.subtitle,
-      position: data.position || { x: 100, y: 100 },
-      width: data.width || DEFAULT_NODE_WIDTH,
-      height: data.height || DEFAULT_NODE_HEIGHT,
-      imageUrl: data.imageUrl,
-      outputs: data.outputs || (data.imageUrl ? [{ id: 'out_1', url: data.imageUrl, type: 'image' }] : []),
-      activeVariantIndex: data.activeVariantIndex || 0,
-      prompt: data.prompt,
-      compiledPrompt: data.compiledPrompt,
-      hubType: data.hubType,
-      workflowId: data.workflowId,
-      model: data.model,
-      style: data.style,
-      status: data.status || 'idle',
-      progress: data.progress,
-      processingTimeMs: data.processingTimeMs,
-      costEstimateUsd: data.costEstimateUsd,
-      error: data.error,
-      createdAt: data.createdAt || Date.now(),
-      parentId: data.parentId,
-    };
+    const newNode = buildNode(data);
+    const id = newNode.id;
 
     setNodes(prev => [...prev, newNode]);
     setSelectedNodeId(id);
@@ -458,6 +455,34 @@ export function useGraphStore(initialNodes: CanvasNodeData[] = []): GraphStore {
     setViewport(fit);
   }, [nodes]);
 
+  // Whole-canvas snapshot for saving a session. Reads refs, so the identity is stable
+  // and the value is never stale inside async save handlers.
+  const getSnapshot = useCallback((): GraphSnapshot & { viewport: GraphViewport } => ({
+    nodes: nodesRef.current,
+    edges: edgesRef.current,
+    selectedNodeId: selectedNodeIdRef.current,
+    viewport: viewportRef.current,
+  }), []);
+
+  // Replace the whole canvas with a restored session. Loading a session is not an edit,
+  // so by default the undo history is cleared rather than doubled.
+  const hydrate = useCallback((
+    snapshot: { nodes: CanvasNodeData[]; edges: CanvasEdge[]; viewport?: GraphViewport; selectedNodeId?: string | null },
+    options?: { keepHistory?: boolean },
+  ) => {
+    if (options?.keepHistory) {
+      pushSnapshot();
+    } else {
+      setPast([]);
+      setFuture([]);
+    }
+    setNodes(snapshot.nodes || []);
+    setEdges(snapshot.edges || []);
+    setSelectedNodeId(snapshot.selectedNodeId ?? null);
+    setPendingConnection(null);
+    if (snapshot.viewport) setViewport(snapshot.viewport);
+  }, [pushSnapshot]);
+
   // Reset Graph
   const resetGraph = useCallback(() => {
     pushSnapshot();
@@ -496,5 +521,7 @@ export function useGraphStore(initialNodes: CanvasNodeData[] = []): GraphStore {
     setViewport,
     fitToView,
     resetGraph,
+    getSnapshot,
+    hydrate,
   };
 }

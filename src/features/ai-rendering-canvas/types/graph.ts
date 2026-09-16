@@ -102,3 +102,29 @@ export interface PendingConnection {
   sourceHandle: 'output';
   currentMousePos: { x: number; y: number };
 }
+
+// Serializable snapshot of the whole canvas (also used by undo in useGraphStore).
+export interface GraphSnapshot {
+  nodes: CanvasNodeData[];
+  edges: CanvasEdge[];
+  selectedNodeId: string | null;
+}
+
+export interface RenderSessionAsset {
+  url: string;
+  mime: string;
+  bytes: number;
+}
+
+// What a saved render session holds. Image payloads are uploaded to Storage and
+// referenced by URL here; `assets` maps content hash -> uploaded asset.
+export interface RenderSessionDocV1 {
+  version: 1;
+  activeHub: HubType;
+  viewport: GraphViewport;
+  selectedNodeId: string | null;
+  nodes: CanvasNodeData[];
+  edges: CanvasEdge[];
+  assets: Record<string, RenderSessionAsset>;
+  savedAt: number;
+}

@@ -17,7 +17,9 @@ import {
   Copy,
   Check,
   Edit3,
-  RotateCcw
+  RotateCcw,
+  Save,
+  FolderOpen
 } from 'lucide-react';
 import { WORKFLOWS, Workflow } from '../../services/aiRender/workflowRegistry';
 import { PromptEnhancerEngine } from '../../services/aiRender/promptEnhancer';
@@ -28,7 +30,29 @@ import { AiRenderingCanvas } from '../../src/features/ai-rendering-canvas/compon
 import { HubType as GraphHubType, CanvasNodeData } from '../../src/features/ai-rendering-canvas/types/graph';
 import { RasterCanvasOverlay } from '../../src/features/ai-rendering-canvas/components/RasterCanvasOverlay';
 import { ImageFullscreenModal } from '../../src/features/ai-rendering-canvas/components/ImageFullscreenModal';
+import { useAccount } from '../account/AccountProvider';
+import RenderSessionsPanel from '../RenderSessionsPanel';
+import { loadRenderSession, saveRenderSession, StorageLimitError, type CloudRenderSessionSummary } from '../../services/firebase/renderSessionsService';
+import { renderSessionThumbnail } from '../../services/firebase/renderSessionThumbnail';
+import { defaultSessionName } from '../../services/firebase/renderSessionSerialize';
+
 import { ArchElement } from '../../types';
+
+// Saved sessions hold Storage URLs; generation needs the bytes back as a data URL.
+const toDataUrl = async (value?: string): Promise<string | undefined> => {
+  if (!value || value.startsWith('data:')) return value;
+  if (!/^https?:/i.test(value)) return value;
+  const blob = await fetch(value).then(r => {
+    if (!r.ok) throw new Error(`Image download failed (HTTP ${r.status}).`);
+    return r.blob();
+  });
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Image could not be read.'));
+    reader.readAsDataURL(blob);
+  });
+};
 
 interface AiRenderingPanelProps {
   onClose: () => void;
@@ -124,6 +148,15 @@ export const AiRenderingPanel: React.FC<AiRenderingPanelProps> = ({ initialHub =
   const [activeBranchParentId, setActiveBranchParentId] = useState<string | null>(null);
   const activeRunningNodeIdRef = useRef<string | null>(null);
 
+  // Saved render sessions (see services/firebase/renderSessionsService.ts)
+  const { user, openAuth } = useAccount();
+  const [sessionMeta, setSessionMeta] = useState<{ id: string; name: string } | null>(null);
+  const [isSavingSession, setIsSavingSession] = useState(false);
+  const [saveProgress, setSaveProgress] = useState('');
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [isSessionsPanelOpen, setIsSessionsPanelOpen] = useState(false);
+  const [isSessionDirty, setIsSessionDirty] = useState(false);
+
   // Active Job states
   const [currentJob, setCurrentJob] = useState<Job | null>(null);
   const [jobIntervalId, setJobIntervalId] = useState<NodeJS.Timeout | null>(null);
@@ -154,6 +187,62 @@ export const AiRenderingPanel: React.FC<AiRenderingPanelProps> = ({ initialHub =
       }
     }
   }, [initialSnapshots, onSnapshotsConsumed]);
+
+  // Mark the session dirty whenever the canvas changes, so the header can show unsaved work.
+  useEffect(() => {
+    setIsSessionDirty(true);
+  }, [graphStore.nodes, graphStore.edges]);
+
+  const handleSaveSession = useCallback(async () => {
+    if (!user) {
+      openAuth();
+      return;
+    }
+    const snapshot = graphStoreRef.current.getSnapshot();
+    if (snapshot.nodes.length === 0) return;
+    setIsSavingSession(true);
+    setSessionError(null);
+    setSaveProgress('');
+    try {
+      const thumbnailDataUrl = await renderSessionThumbnail(snapshot.nodes);
+      const { sessionId } = await saveRenderSession(
+        user.uid,
+        snapshot,
+        activeHub as GraphHubType,
+        {
+          sessionId: sessionMeta?.id || null,
+          name: sessionMeta?.name || defaultSessionName(),
+          thumbnailDataUrl,
+          onProgress: (done, total) => setSaveProgress(total > 1 ? `${done}/${total}` : ''),
+        },
+      );
+      setSessionMeta(prev => ({ id: sessionId, name: prev?.name || defaultSessionName() }));
+      setIsSessionDirty(false);
+    } catch (error: any) {
+      setSessionError(error instanceof StorageLimitError ? error.message : (error?.message || 'This session could not be saved.'));
+    } finally {
+      setIsSavingSession(false);
+      setSaveProgress('');
+    }
+  }, [user, openAuth, activeHub, sessionMeta]);
+
+  const handleOpenSession = useCallback(async (summary: CloudRenderSessionSummary) => {
+    if (!user) return;
+    const doc = await loadRenderSession(user.uid, summary.id);
+    graphStoreRef.current.hydrate({
+      nodes: doc.nodes,
+      edges: doc.edges,
+      viewport: doc.viewport,
+      selectedNodeId: doc.selectedNodeId,
+    });
+    setActiveHub(doc.activeHub as HubType);
+    setActiveBranchParentId(null);
+    setSessionMeta({ id: summary.id, name: summary.name });
+    setIsSessionsPanelOpen(false);
+    setSessionError(null);
+    // hydrate() triggers the dirty effect above; this session is freshly loaded, not edited.
+    requestAnimationFrame(() => setIsSessionDirty(false));
+  }, [user]);
 
   // Developmental prompt inspection states
   const [compiledPromptText, setCompiledPromptText] = useState('');
@@ -981,12 +1070,28 @@ export const AiRenderingPanel: React.FC<AiRenderingPanelProps> = ({ initialHub =
       const drawingImg = nodeUploadedImages.find(img => img.category === 'drawing');
       nodeUploadedImages = drawingImg ? [drawingImg] : [nodeUploadedImages[0]];
     }
+
+    // A restored session holds Storage URLs; the backend only accepts data URLs or raw base64.
+    try {
+      nodeUploadedImages = await Promise.all(nodeUploadedImages.map(async img => ({
+        ...img,
+        base64: await toDataUrl(img.base64),
+      })));
+    } catch (conversionError) {
+      currentGraphStore.updateNode(node.id, {
+        status: 'failed',
+        error: 'Could not load the saved images for this node. Check your connection and try again.',
+      });
+      return;
+    }
+    const nodeInputImgResolved = nodeUploadedImages[0]?.base64 || nodeInputImg;
+
     const payload = {
       workflow_id: wf.id,
       user_input: nodePrompt,
       model: nodeModel,
       image_style: nodeStyle,
-      uploaded_image: nodeInputImg || null,
+      uploaded_image: nodeInputImgResolved || null,
       uploaded_images: nodeUploadedImages,
       parameters: {
         resolution: node.resolution || '2K',
@@ -1088,6 +1193,35 @@ export const AiRenderingPanel: React.FC<AiRenderingPanelProps> = ({ initialHub =
           <Sparkles className="text-indigo-400" size={20} />
           <h2 className="font-bold text-sm text-slate-100 tracking-wide">{initialHub === 'gen_3d' ? '3D Generator' : 'Render Canvas'}</h2>
         </div>
+
+        {/* Saved sessions */}
+        <div className="flex items-center gap-2">
+          {sessionError && (
+            <span className="text-[10px] font-medium text-red-400 max-w-[260px] truncate" title={sessionError}>{sessionError}</span>
+          )}
+          {sessionMeta && !sessionError && (
+            <span className="text-[10px] font-medium text-slate-500 max-w-[180px] truncate" title={sessionMeta.name}>
+              {sessionMeta.name}{isSessionDirty ? ' •' : ''}
+            </span>
+          )}
+          <button
+            onClick={handleSaveSession}
+            disabled={isSavingSession || graphStore.nodes.length === 0}
+            title={user ? 'Save this canvas so you can continue later' : 'Sign in to save this canvas'}
+            className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold flex items-center gap-1.5 cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {isSavingSession ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            <span>{isSavingSession ? (saveProgress ? `Saving ${saveProgress}` : 'Saving…') : 'Save'}</span>
+          </button>
+          <button
+            onClick={() => (user ? setIsSessionsPanelOpen(true) : openAuth())}
+            title="Open a saved session"
+            className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1.5 text-slate-300 border border-slate-800 hover:bg-slate-800 hover:text-white cursor-pointer transition-colors"
+          >
+            <FolderOpen size={14} />
+            <span>Sessions</span>
+          </button>
+        </div>
       </div>
 
       {/* Main Workspace Body */}
@@ -1146,6 +1280,14 @@ export const AiRenderingPanel: React.FC<AiRenderingPanelProps> = ({ initialHub =
             setFullscreenModalOpen(false);
             handleEditInRasterCanvasOverlay(activeBranchParentId || '', url);
           }}
+        />
+
+        <RenderSessionsPanel
+          isOpen={isSessionsPanelOpen}
+          onClose={() => setIsSessionsPanelOpen(false)}
+          uid={user?.uid || null}
+          currentSessionId={sessionMeta?.id || null}
+          onOpenSession={handleOpenSession}
         />
       </div>
     </div>

@@ -18,6 +18,7 @@ import { ProceduralLayoutEngine } from '../services/proceduralService';
 import { SmartProceduralLayoutEngine } from '../smart-procedural/smartProceduralService';
 import { AutoProceduralLayoutEngine } from '../services/autoProceduralService';
 import { VectorPdfCanvasContext, downloadVectorPdf } from '../services/vectorPdf';
+import RemoteCursors from './collab/RemoteCursors';
 import { VectorDxfCanvasContext, downloadVectorDxf } from '../services/vectorDxf';
 import {
   circularArcFromThreePoints,
@@ -101,6 +102,8 @@ function getEnclosedSpace(px: number, py: number, elements: ArchElement[]) {
 
 interface CanvasProps {
   project: Project;
+  // Live collaboration: publishes the pointer in world coordinates (null when it leaves the canvas).
+  onWorldPointerMove?: (point: Point | null) => void;
   editorState: EditorState;
   activeLevelId: string; // New prop for active level
   onElementsChange: (elements: ArchElement[]) => void;
@@ -1218,8 +1221,12 @@ const Canvas = forwardRef<CanvasHandle, CanvasProps>(({
   onDropImportedElements,
   onCancelImportedElements,
   rasterUnderlay,
+  onWorldPointerMove,
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Kept in a ref so publishing the cursor never affects render()'s dependencies.
+  const pointerPublishRef = useRef(onWorldPointerMove);
+  pointerPublishRef.current = onWorldPointerMove;
   const mapImageRef = useRef<HTMLImageElement | null>(null);
   const rasterUnderlayImageRef = useRef<HTMLImageElement | null>(null);
   const [rasterUnderlayImageVersion, setRasterUnderlayImageVersion] = useState(0);
@@ -6925,6 +6932,7 @@ const Canvas = forwardRef<CanvasHandle, CanvasProps>(({
         return;
     }
     const world = screenToWorld(raw);
+    pointerPublishRef.current?.(world); // raw position, not the snapped one
     const base = (isDrawing || activeGrip || isDraggingSelected || isRotating) ? (dragStart || undefined) : undefined;
     const target = applyOrtho(world, base, e); const snap = applyAdvancedSnapping(target, base); setSnapPreview(snap); setLastMousePos(snap.point);
     
@@ -7699,7 +7707,7 @@ const Canvas = forwardRef<CanvasHandle, CanvasProps>(({
         }}  
         onDoubleClick={() => { setIsDrawing(false); setDragStart(null); onSelectionChange([]); }} 
         onContextMenu={(e) => e.preventDefault()} 
-        onMouseLeave={() => setScreenMousePos(null)}
+        onMouseLeave={() => { setScreenMousePos(null); pointerPublishRef.current?.(null); }}
         onMouseEnter={(e) => { if (editorState.activeTool !== 'pan' && !isMiddlePanning && !isMiddleRotating) setScreenMousePos(getCanvasCoords(e)); }}
         className={`w-full h-full bg-slate-50 ${
           (isMiddlePanning || (editorState.activeTool === 'pan' && isDragging)) 
@@ -7708,6 +7716,16 @@ const Canvas = forwardRef<CanvasHandle, CanvasProps>(({
               ? 'cursor-move'
               : (editorState.activeTool === 'pan' ? 'cursor-grab' : (screenMousePos ? 'cursor-none' : 'cursor-default'))
         }`} 
+      />
+      <RemoteCursors
+        view={{
+          viewMode: editorState.viewMode,
+          drawingView: editorState.drawingView || 'plan',
+          activeLevelId: editorState.activeLevelId,
+        }}
+        zoom={editorState.zoom}
+        offset={editorState.offset}
+        canvasAngle={editorState.canvasAngle}
       />
       {(editorState.activeTool === 'floor' || editorState.activeTool === 'ceiling') &&
       editorState.tempBoundaryIds && editorState.tempBoundaryIds.length > 0 && (

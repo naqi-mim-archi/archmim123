@@ -10,6 +10,7 @@ import { deleteDoc, doc, getDoc } from 'firebase/firestore';
 import { deleteObject, listAll, ref, type StorageReference } from 'firebase/storage';
 import { getFirebaseAuth, getFirebaseDb, getFirebaseStorage } from './firebaseConfig';
 import { deleteProject, listProjects, loadProject } from './projectsService';
+import { deleteRenderSession, listRenderSessions } from './renderSessionsService';
 
 const requireUser = (): User => {
   const user = getFirebaseAuth().currentUser;
@@ -79,6 +80,9 @@ export const deleteAccount = async (onProgress?: (message: string) => void): Pro
   const projects = await listProjects(user.uid);
   onProgress?.(`Deleting ${projects.length} saved project${projects.length === 1 ? '' : 's'}…`);
   for (const project of projects) await deleteProject(user.uid, project.id);
+  const sessions = await listRenderSessions(user.uid).catch(() => []);
+  if (sessions.length) onProgress?.(`Deleting ${sessions.length} render session${sessions.length === 1 ? '' : 's'}…`);
+  for (const session of sessions) await deleteRenderSession(user.uid, session.id).catch(() => undefined);
   onProgress?.('Deleting stored files…');
   await deleteFolder(ref(getFirebaseStorage(), `users/${user.uid}`)).catch(() => undefined);
   onProgress?.('Deleting profile…');

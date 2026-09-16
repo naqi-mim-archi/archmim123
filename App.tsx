@@ -35,7 +35,7 @@ import { RevitExportJobResponse } from './services/revitExport/revitExportTypes'
 import { 
   Upload, Loader2, Save, FileJson, Plus, CheckCircle2, Boxes, Sparkles, Layers as LayersIcon, ChevronDown, ChevronLeft, Globe, Home, Wand2, ScanLine, Hammer,
   GripVertical, GripHorizontal, FileDown, FileUp, Database, DatabaseZap, FileCode2, HardDriveDownload,
-  Menu, FolderOpen, ChevronRight, LogOut, X as CloseIcon
+  Menu, FolderOpen, ChevronRight, LogOut, X as CloseIcon, Share2
 } from 'lucide-react';
 import { WALL_THICKNESS_DEFAULT, WALL_HEIGHT_DEFAULT, DEFAULT_PROJECT_SETTINGS_3D, FT_TO_M, PROCEDURAL_TYPOLOGIES, INTERIOR_ELEMENT_PRESETS, normalizeInteriorElement, registerCustomInteriorPresets } from './constants';
 import { curveLength as analyticCurveLength, getCurvePoint as analyticGetCurvePoint } from './services/geometry/curveGeometry';
@@ -47,6 +47,10 @@ import { finalizeText4jImportHandoff, isText4jAuthoritativePreview } from './ser
 import type { HubType as AiRenderingHubType } from './src/features/ai-rendering-canvas/types/graph';
 import AccountHeaderControls from './components/account/AccountHeaderControls';
 import { useAccount } from './components/account/AccountProvider';
+import PresenceBar from './components/collab/PresenceBar';
+import { usePresence } from './components/collab/usePresence';
+import type { PresencePeer } from './services/firebase/presenceService';
+import { worldToScreenPoint } from './services/geometry/canvasTransform';
 
 const DRAWING_TOOLS: EditorTool[] = ['wall', 'door', 'window', 'wall-opening', 'column', 'stair', 'furniture', 'room', 'gridline', 'dimension', 'line', 'rect', 'arc', 'circle', 'ellipse', 'move', 'copy', 'rotate', 'split', 'floor', 'ceiling', 'railing', 'counter', 'fixture', 'procedural-boundary', 'smart-procedural-boundary', 'auto-procedural-boundary'];
 const ELEVATION_DIRECTIONS: ElevationDirection[] = ['N', 'S', 'E', 'W'];
@@ -730,7 +734,20 @@ const App: React.FC = () => {
       setProjectRaw(p ? ensureProjectLayers(p) : null);
     }
   };
-  const { resetCloudProject, registerProjectBridge } = useAccount();
+  const { resetCloudProject, registerProjectBridge, isReadOnlyProject, currentProjectId, currentProjectRole, openShare, user: accountUser } = useAccount();
+  // A plan opened through a share link (or as an invited viewer) is read-only. Every geometry
+  // change funnels through handleElementsChange / handleElementsCommit / pushHistory, so guarding
+  // those three blocks all editing; the Firestore rules are what actually enforce it.
+  const isReadOnly = isReadOnlyProject;
+  const isReadOnlyRef = useRef(isReadOnly);
+  isReadOnlyRef.current = isReadOnly;
+
+  // Live presence (cursors + who is on which view). Off unless a cloud project is open.
+  const presence = usePresence(currentProjectId, accountUser);
+  const presenceRef = useRef(presence);
+  presenceRef.current = presence;
+  const publishPointer = useCallback((point: Point | null) => presenceRef.current.setCursor(point), []);
+  const [followNonce, setFollowNonce] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [history, setHistory] = useState<Project[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -943,6 +960,7 @@ const App: React.FC = () => {
   }, [project, project?.settings3D?.inchesDecimalPlaces]);
 
   const pushHistory = useCallback((proj?: Project) => {
+    if (isReadOnlyRef.current) return;
     const target = proj || project;
     if (!target) return;
     const cleanProj = ensureProjectLayers(target);
@@ -2616,6 +2634,7 @@ const App: React.FC = () => {
   } : null, [pendingBimReview]);
 
   const handleElementsChange = useCallback((updatedLevelElements: ArchElement[]) => {
+    if (isReadOnlyRef.current) return;
     if (!project) return;
     if (isElevationActive) {
       setProject({ ...project, elements: mapElevationElementsToProject(updatedLevelElements) });
@@ -2631,6 +2650,7 @@ const App: React.FC = () => {
   }, [project, editorState.activeLevelId, validateOpenings, isElevationActive, mapElevationElementsToProject]);
 
   const handleElementsCommit = useCallback((updatedLevelElements: ArchElement[]) => {
+    if (isReadOnlyRef.current) return;
     if (!project) return;
     if (isElevationActive) {
       const newProject = { ...project, elements: mapElevationElementsToProject(updatedLevelElements) };
@@ -2889,6 +2909,53 @@ const App: React.FC = () => {
     });
     return getFrameForBounds(getElementsBounds(points.map((point, index) => ({ id: `frame-${index}`, type: 'line', p1: point, p2: point } as ArchElement))), 0);
   }, [editorState.activeLevelId, editorState.canvasAngle, editorState.offset, editorState.zoom, getFrameForBounds, project]);
+
+  // Which drawing this user is looking at; peers use it to filter cursors.
+  useEffect(() => {
+    presenceRef.current.setView({
+      viewMode: editorState.viewMode,
+      drawingView: editorState.drawingView || 'plan',
+      activeLevelId: editorState.activeLevelId,
+    });
+  }, [editorState.viewMode, editorState.drawingView, editorState.activeLevelId]);
+
+  useEffect(() => {
+    presenceRef.current.setSelection(editorState.selectedIds);
+  }, [editorState.selectedIds]);
+
+  // Jump to what a collaborator is looking at.
+  const followPeer = useCallback((peer: PresencePeer) => {
+    if (!peer.view) return;
+    if (peer.view.viewMode === '3D') {
+      if (peer.camera) viewportFramesRef.current['3D'] = peer.camera as any;
+      setEditorState(s => ({ ...s, viewMode: '3D' }));
+      setFollowNonce(n => n + 1); // Viewer3D prefers its live camera, so remount it
+      return;
+    }
+    setEditorState(s => ({
+      ...s,
+      viewMode: '2D',
+      drawingView: (peer.view!.drawingView as DrawingViewId) || 'plan',
+      activeLevelId: peer.view!.activeLevelId || s.activeLevelId,
+    }));
+    if (peer.cursor) {
+      const cursor = peer.cursor;
+      requestAnimationFrame(() => {
+        setEditorState(s => {
+          const screen = worldToScreenPoint(cursor, { zoom: s.zoom, offset: s.offset, canvasAngle: s.canvasAngle });
+          return {
+            ...s,
+            offset: {
+              x: s.offset.x + (window.innerWidth / 2 - screen.x),
+              y: s.offset.y + (window.innerHeight / 2 - screen.y),
+            },
+          };
+        });
+      });
+    }
+  }, []);
+
+  const levelNameFor = useCallback((levelId: string) => project?.levels.find(l => l.id === levelId)?.name, [project]);
 
   const handleTransform = useCallback((offset: Point, zoom: number) => {
     setEditorState(s => {
@@ -3520,6 +3587,24 @@ const App: React.FC = () => {
 
         {/* Right: Hidden Inputs & Minimalist Apple Hamburger Menu */}
         <div className="flex items-center gap-2">
+          <PresenceBar levelNameFor={levelNameFor} onFollow={followPeer} />
+          {isReadOnly && (
+            <span
+              className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold"
+              title="You opened this plan through a share link. Save a copy to make changes."
+            >
+              View only
+            </span>
+          )}
+          {currentProjectId && currentProjectRole === 'owner' && (
+            <button
+              onClick={openShare}
+              className="p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 transition-all flex items-center justify-center cursor-pointer"
+              title="Share this plan"
+            >
+              <Share2 size={20} />
+            </button>
+          )}
           <input
             ref={dxfFileInputRef}
             type="file"
@@ -3966,6 +4051,7 @@ const App: React.FC = () => {
                 editorState={editorState} 
                 onElementsChange={handleElementsChange} 
                 onElementsCommit={handleElementsCommit} 
+                onWorldPointerMove={publishPointer}
                 onSelectionChange={onSelectionChange} 
                 onTransformChange={handleTransform} 
                 setEditorState={setEditorState} 
@@ -4040,6 +4126,7 @@ const App: React.FC = () => {
               />
             ) : (
               <Viewer3D
+                key={followNonce}
                 project={project}
                 editorState={editorState}
                 activeLevelId={editorState.activeLevelId}
@@ -4048,7 +4135,7 @@ const App: React.FC = () => {
                 onSelectionChange={onSelectionChange}
                 setEditorState={setEditorState}
                 initialCameraFrame={viewportFramesRef.current['3D']}
-                onCameraFrameChange={(frame) => { viewportFramesRef.current['3D'] = frame; }}
+                onCameraFrameChange={(frame) => { viewportFramesRef.current['3D'] = frame; presenceRef.current.setCamera(frame as any); }}
               />
             )
           )}

@@ -1,0 +1,33 @@
+{
+  "rules": {
+    "presence": {
+      "$projectId": {
+        ".read": "auth != null",
+        "$uid": {
+          "$sessionId": {
+            ".write": "auth != null && auth.uid == $uid",
+            ".validate": "newData.hasChildren(['uid', 'name', 'lastActive']) && newData.child('uid').val() == auth.uid",
+            "name": { ".validate": "newData.isString() && newData.val().length <= 120" },
+            "color": { ".validate": "newData.isString() && newData.val().length <= 32" },
+            "photoURL": { ".validate": "newData.isString() && newData.val().length <= 2048" },
+            "cursor": {
+              "x": { ".validate": "newData.isNumber()" },
+              "y": { ".validate": "newData.isNumber()" },
+              "$other": { ".validate": false }
+            },
+            "view": {
+              "viewMode": { ".validate": "newData.isString() && newData.val().length <= 8" },
+              "drawingView": { ".validate": "newData.isString() && newData.val().length <= 32" },
+              "activeLevelId": { ".validate": "newData.isString() && newData.val().length <= 64" },
+              "$other": { ".validate": false }
+            },
+            "camera": { ".validate": "newData.hasChildren()" },
+            "selectedIds": { ".validate": "newData.hasChildren() || newData.val() == null" },
+            "lastActive": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          }
+        }
+      }
+    }
+  }
+}
