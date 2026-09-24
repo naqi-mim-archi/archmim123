@@ -175,6 +175,10 @@ const createHandle = (projectId: string, identity: PresenceIdentity): { handle: 
     }).catch(error => console.warn('[Presence] Could not announce presence:', error));
   };
 
+  // Announce straight away: '.info/connected' arrives a moment later, and until the entry exists
+  // every update is refused by the rules (they require the entry to carry uid/name/lastActive).
+  writeBase();
+
   // Re-arm the disconnect cleanup after every reconnect, or a dropped tab lingers forever.
   const connectedRef = ref(db, '.info/connected');
   const connectedHandler = onValue(connectedRef, snapshot => {
