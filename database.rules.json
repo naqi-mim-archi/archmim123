@@ -106,6 +106,34 @@
         },
         "$other": {
           ".validate": false
+        },
+        "nodes": {
+          "$nodeId": {
+            ".validate": "newData.hasChildren(['j', 'by']) && newData.child('j').isString() && newData.child('j').val().length < 1000000 && newData.child('by').isString() && newData.child('by').val().length <= 64",
+            "j": {
+              ".validate": true
+            },
+            "by": {
+              ".validate": true
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "edges": {
+          "$edgeId": {
+            ".validate": "newData.hasChildren(['j', 'by']) && newData.child('j').isString() && newData.child('j').val().length < 1000000 && newData.child('by').isString() && newData.child('by').val().length <= 64",
+            "j": {
+              ".validate": true
+            },
+            "by": {
+              ".validate": true
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
         }
       }
     }

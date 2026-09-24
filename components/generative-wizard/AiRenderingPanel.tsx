@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useLiveRenderSession } from '../collab/useLiveRenderSession';
 import { 
   Sparkles, 
   Play, 
@@ -153,12 +154,20 @@ export const AiRenderingPanel: React.FC<AiRenderingPanelProps> = ({ initialHub =
 
   // Saved render sessions (see services/firebase/renderSessionsService.ts)
   const { user, openAuth, openShare, pendingSharedSessionId, consumePendingSharedSession, announceSharedArrival } = useAccount();
-  const [sessionMeta, setSessionMeta] = useState<{ id: string; name: string; role: ProjectRole } | null>(null);
+  const [sessionMeta, setSessionMeta] = useState<{ id: string; name: string; role: ProjectRole; ownerId: string } | null>(null);
   const [isSavingSession, setIsSavingSession] = useState(false);
   const [saveProgress, setSaveProgress] = useState('');
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [isSessionsPanelOpen, setIsSessionsPanelOpen] = useState(false);
   const [isSessionDirty, setIsSessionDirty] = useState(false);
+
+  // Live co-editing of the graph itself: node moves, new nodes, prompts and finished renders.
+  const liveSessionStatus = useLiveRenderSession({
+    sessionId: sessionMeta?.id || null,
+    ownerId: sessionMeta?.ownerId || null,
+    user,
+    store: graphStore,
+  });
 
   // Live presence for a saved session: everyone with it open shares one room.
   const presenceRoom = sessionMeta ? `rs_${sessionMeta.id}` : null;
@@ -241,6 +250,7 @@ export const AiRenderingPanel: React.FC<AiRenderingPanelProps> = ({ initialHub =
         id: sessionId,
         name: canOverwrite ? prev?.name || defaultSessionName() : `${prev?.name || 'Render session'} (copy)`,
         role: canOverwrite ? prev?.role || 'owner' : 'owner',
+        ownerId: canOverwrite ? prev?.ownerId || user.uid : user.uid,
       }));
       setIsSessionDirty(false);
     } catch (error: any) {
@@ -262,7 +272,7 @@ export const AiRenderingPanel: React.FC<AiRenderingPanelProps> = ({ initialHub =
     });
     setActiveHub(loaded.doc.activeHub as HubType);
     setActiveBranchParentId(null);
-    setSessionMeta({ id: sessionId, name: fallbackName || loaded.name, role: loaded.role });
+    setSessionMeta({ id: sessionId, name: fallbackName || loaded.name, role: loaded.role, ownerId: loaded.ownerId });
     setIsSessionsPanelOpen(false);
     setSessionError(null);
     // hydrate() triggers the dirty effect above; this session is freshly loaded, not edited.

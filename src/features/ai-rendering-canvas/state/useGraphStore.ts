@@ -68,6 +68,7 @@ export interface GraphStore {
 
   // Session save / restore (see services/firebase/renderSessionsService.ts)
   getSnapshot: () => GraphSnapshot & { viewport: GraphViewport };
+  mergeRemote: (changes: { nodes?: CanvasNodeData[]; removedNodeIds?: string[]; edges?: CanvasEdge[]; removedEdgeIds?: string[] }) => void;
   hydrate: (
     snapshot: { nodes: CanvasNodeData[]; edges: CanvasEdge[]; viewport?: GraphViewport; selectedNodeId?: string | null },
     options?: { keepHistory?: boolean },
@@ -483,6 +484,40 @@ export function useGraphStore(initialNodes: CanvasNodeData[] = []): GraphStore {
     if (snapshot.viewport) setViewport(snapshot.viewport);
   }, [pushSnapshot]);
 
+  // Live co-editing: merge someone else's changes without touching this user's selection,
+  // viewport or undo history (see components/collab/useLiveRenderSession.ts).
+  const mergeRemote = useCallback((changes: {
+    nodes?: CanvasNodeData[];
+    removedNodeIds?: string[];
+    edges?: CanvasEdge[];
+    removedEdgeIds?: string[];
+  }) => {
+    const removedNodes = new Set(changes.removedNodeIds || []);
+    if (changes.nodes?.length || removedNodes.size) {
+      setNodes(prev => {
+        const incoming = new Map((changes.nodes || []).map(node => [node.id, node]));
+        const merged = prev
+          .filter(node => !removedNodes.has(node.id))
+          .map(node => incoming.get(node.id) || node);
+        const seen = new Set(merged.map(node => node.id));
+        incoming.forEach((node, id) => { if (!seen.has(id) && !removedNodes.has(id)) merged.push(node); });
+        return merged;
+      });
+    }
+    const removedEdges = new Set(changes.removedEdgeIds || []);
+    if (changes.edges?.length || removedEdges.size) {
+      setEdges(prev => {
+        const incoming = new Map((changes.edges || []).map(edge => [edge.id, edge]));
+        const merged = prev
+          .filter(edge => !removedEdges.has(edge.id))
+          .map(edge => incoming.get(edge.id) || edge);
+        const seen = new Set(merged.map(edge => edge.id));
+        incoming.forEach((edge, id) => { if (!seen.has(id) && !removedEdges.has(id)) merged.push(edge); });
+        return merged;
+      });
+    }
+  }, []);
+
   // Reset Graph
   const resetGraph = useCallback(() => {
     pushSnapshot();
@@ -523,5 +558,6 @@ export function useGraphStore(initialNodes: CanvasNodeData[] = []): GraphStore {
     resetGraph,
     getSnapshot,
     hydrate,
+    mergeRemote,
   };
 }

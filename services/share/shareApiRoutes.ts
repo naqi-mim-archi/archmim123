@@ -88,15 +88,16 @@ const grantLiveAccess = async (request: ShareApiRequest, response: ShareApiRespo
     response.status(503).json({ error: 'Live editing is not configured on the server.' });
     return;
   }
-  const projectId = String(request.body?.projectId || '');
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(projectId)) {
-    response.status(400).json({ error: 'projectId is required.' });
+  const targetId = String(request.body?.targetId || request.body?.projectId || '');
+  const collection = COLLECTIONS[request.body?.kind === 'session' ? 'session' : 'project'];
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(targetId)) {
+    response.status(400).json({ error: 'targetId is required.' });
     return;
   }
   try {
-    const snap = await getAdminFirestore().collection('projects').doc(projectId).get();
+    const snap = await getAdminFirestore().collection(collection).doc(targetId).get();
     const role = snap.exists ? resolveRole(snap.data() as any, user.uid) : null;
-    const accessRef = getAdminDatabase().ref(`liveAccess/${projectId}/${user.uid}`);
+    const accessRef = getAdminDatabase().ref(`liveAccess/${targetId}/${user.uid}`);
     if (!role) {
       await accessRef.remove();
       response.status(404).json({ error: 'Not Found' });

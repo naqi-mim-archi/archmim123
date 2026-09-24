@@ -117,4 +117,70 @@ check(!updates['elements/img'] && alice.ledger.oversized.has('img'), 'Oversized 
 check(bob.ledger.noteRemoteElement('zz', { j: '{not json', by: 'x' }) === null, 'Corrupt entry ignored');
 check(bob.ledger.noteRemoteElement('zz', { j: JSON.stringify({ id: 'other' }), by: 'x' }) === null, 'Entry whose id does not match its key is ignored');
 
+
+// --- render session graph (nodes + edges under their own children) ----------------------------
+const { rewriteNodeImageRefs, collectDataUrls } = await importTs('services/firebase/renderSessionSerialize.ts');
+
+const gNode = (id, x) => ({ id, type: 'image', title: 'Render Node', position: { x, y: 0 }, status: 'idle' });
+const room2 = { nodes: {}, edges: {} };
+const applyGraph = updates => {
+  const events = [];
+  for (const [path, value] of Object.entries(updates)) {
+    const [child, key] = path.split('/');
+    if (value === null) { delete room2[child][key]; events.push({ child, type: 'removed', key }); }
+    else { room2[child][key] = value; events.push({ child, type: 'changed', key, value }); }
+  }
+  return events;
+};
+const deliverGraph = (client, events) => {
+  const out = { nodes: [], removedNodeIds: [], edges: [], removedEdgeIds: [] };
+  for (const event of events) {
+    const ledger = event.child === 'nodes' ? client.nodes : client.edges;
+    if (event.type === 'changed') {
+      const parsed = ledger.noteRemoteElement(event.key, event.value);
+      if (parsed) (event.child === 'nodes' ? out.nodes : out.edges).push(parsed);
+    } else if (ledger.noteRemoteRemoval(event.key)) {
+      (event.child === 'nodes' ? out.removedNodeIds : out.removedEdgeIds).push(decodeLiveKey(event.key));
+    }
+  }
+  return out;
+};
+
+const ann = { by: 'tabA', nodes: new LiveSyncLedger('nodes'), edges: new LiveSyncLedger('edges'), graph: { nodes: [gNode('n1', 0), gNode('n2', 400)], edges: [] } };
+const ben = { by: 'tabB', nodes: new LiveSyncLedger('nodes'), edges: new LiveSyncLedger('edges'), graph: { nodes: [], edges: [] } };
+ann.nodes.resetFromProject({ elements: ann.graph.nodes });
+ann.edges.resetFromProject({ elements: ann.graph.edges });
+Object.assign(room2, { nodes: buildLiveSeed({ elements: ann.graph.nodes }, ann.by).elements, edges: {} });
+ben.nodes.resetFromRoom(room2); ben.edges.resetFromRoom(room2);
+ben.graph.nodes = Object.values(room2.nodes).map(entry => JSON.parse(entry.j));
+check(ben.graph.nodes.length === 2, 'Joiner picks up the render graph');
+
+// Ann drags a node.
+ann.graph.nodes = ann.graph.nodes.map(n => (n.id === 'n1' ? { ...n, position: { x: 250, y: 120 } } : n));
+let g = deliverGraph(ben, applyGraph(ann.nodes.collectLocal({ elements: ann.graph.nodes }, ann.by)));
+check(g.nodes.length === 1 && g.nodes[0].position.x === 250, 'A node drag reaches the other person');
+
+// Ben connects the two nodes.
+ben.graph.edges = [{ id: 'e1', sourceNodeId: 'n1', targetNodeId: 'n2' }];
+g = deliverGraph(ann, applyGraph(ben.edges.collectLocal({ elements: ben.graph.edges }, ben.by)));
+check(g.edges.length === 1 && g.edges[0].sourceNodeId === 'n1', 'A new connection reaches the other person');
+check(Object.keys(ann.nodes.collectLocal({ elements: ann.graph.nodes }, ann.by)).length === 0, 'Nodes and edges do not interfere');
+
+// Ben deletes a node.
+ben.graph.nodes = ben.graph.nodes.filter(n => n.id !== 'n2');
+g = deliverGraph(ann, applyGraph(ben.nodes.collectLocal({ elements: ben.graph.nodes }, ben.by)));
+check(g.removedNodeIds.join() === 'n2', 'A deleted node reaches the other person');
+
+// A finished render: the picture goes to Storage, only its link travels.
+const bigImage = `data:image/png;base64,${'Q'.repeat(2_000_000)}`;
+const rendered = [{ ...gNode('n1', 250), imageUrl: bigImage, outputs: [{ id: 'out_0', url: bigImage, type: 'image' }] }];
+check(collectDataUrls(rendered).length === 1, 'The same picture is found once, not per slot');
+const wire = rewriteNodeImageRefs(rendered, new Map([[bigImage, 'https://storage/img.png']]));
+const wireJson = JSON.stringify(wire[0]);
+check(!wireJson.includes('data:image'), 'No image data goes through the database');
+check(wireJson.length < 2000, 'The node on the wire is small');
+const updates2 = ann.nodes.collectLocal({ elements: wire }, ann.by);
+g = deliverGraph(ben, applyGraph(updates2));
+check(g.nodes[0].imageUrl === 'https://storage/img.png' && g.nodes[0].outputs[0].url === 'https://storage/img.png', 'The render reaches the other person as a link');
+
 finish();

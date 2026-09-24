@@ -51,6 +51,10 @@ export class LiveSyncLedger {
   meta: string | null = null;
   readonly oversized = new Set<string>();
 
+  // Which child of live/{id} these entries live under: 'elements' for a plan, 'nodes'/'edges' for
+  // a render session.
+  constructor(private readonly child: string = 'elements') {}
+
   // Baseline = this project (we just seeded the live copy from it).
   resetFromProject(project: ProjectLike) {
     this.elements.clear();
@@ -75,7 +79,7 @@ export class LiveSyncLedger {
     this.elements.clear();
     this.refs.clear();
     this.oversized.clear();
-    for (const [key, entry] of Object.entries(room?.elements || {})) {
+    for (const [key, entry] of Object.entries<LiveEntry>((room as any)?.[this.child] || {})) {
       if (entry && typeof entry.j === 'string') this.elements.set(decodeLiveKey(key), entry.j);
     }
     this.meta = typeof room?.meta?.j === 'string' ? room.meta.j : null;
@@ -98,18 +102,20 @@ export class LiveSyncLedger {
       }
       this.oversized.delete(element.id);
       this.elements.set(element.id, json);
-      updates[`elements/${encodeLiveKey(element.id)}`] = { j: json, by };
+      updates[`${this.child}/${encodeLiveKey(element.id)}`] = { j: json, by };
     }
     for (const id of Array.from(this.elements.keys())) {
       if (present.has(id)) continue;
       this.elements.delete(id);
       this.refs.delete(id);
-      updates[`elements/${encodeLiveKey(id)}`] = null;
+      updates[`${this.child}/${encodeLiveKey(id)}`] = null;
     }
-    const meta = projectMetaJson(project);
-    if (meta !== this.meta && meta.length <= MAX_LIVE_ENTRY_CHARS) {
-      this.meta = meta;
-      updates.meta = { j: meta, by };
+    if (this.child === 'elements') {
+      const meta = projectMetaJson(project);
+      if (meta !== this.meta && meta.length <= MAX_LIVE_ENTRY_CHARS) {
+        this.meta = meta;
+        updates.meta = { j: meta, by };
+      }
     }
     return updates;
   }
