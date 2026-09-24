@@ -36,10 +36,21 @@ service cloud.firestore {
       }
     }
 
-    // Saved render-canvas sessions (owner-only; images live in Storage).
+    // Outgoing invitation emails, queued by /api/share/invite and sent by the Firebase
+    // "Trigger Email" extension. Server-only: a client-writable queue would let anyone
+    // send mail from your address.
+    match /mail/{mailId} {
+      allow read, write: if false;
+    }
+
+    // Saved render-canvas sessions. Shared the same way as plans: a link grants viewing,
+    // an invite grants editing. Images live in Storage.
     match /renderSessions/{sessionId} {
       function validSession(data) {
-        return data.keys().hasOnly(['ownerId', 'name', 'hub', 'nodeCount', 'imageCount', 'thumbnailUrl', 'storageMode', 'data', 'dataUrl', 'createdAt', 'updatedAt'])
+        return data.keys().hasOnly([
+            'ownerId', 'name', 'hub', 'nodeCount', 'imageCount', 'thumbnailUrl', 'storageMode', 'data', 'dataUrl', 'createdAt', 'updatedAt',
+            'members', 'memberIds', 'memberProfiles', 'linkAccess', 'shareToken', 'invitedEmails', 'ownerEmail'
+          ])
           && data.ownerId is string
           && data.name is string && data.name.size() <= 200
           && data.hub is string && data.hub.size() <= 32
@@ -48,17 +59,57 @@ service cloud.firestore {
           && (!('thumbnailUrl' in data) || data.thumbnailUrl == null || (data.thumbnailUrl is string && data.thumbnailUrl.size() <= 2048))
           && data.storageMode in ['inline', 'storage']
           && (!('data' in data) || data.data == null || (data.data is string && data.data.size() <= 900000))
-          && (!('dataUrl' in data) || data.dataUrl == null || (data.dataUrl is string && data.dataUrl.size() <= 2048));
+          && (!('dataUrl' in data) || data.dataUrl == null || (data.dataUrl is string && data.dataUrl.size() <= 2048))
+          && (!('linkAccess' in data) || data.linkAccess in ['none', 'view'])
+          && (!('members' in data) || (data.members is map && data.members.keys().size() <= 50))
+          && (!('memberIds' in data) || (data.memberIds is list && data.memberIds.size() <= 50))
+          && (!('invitedEmails' in data) || (data.invitedEmails is list && data.invitedEmails.size() <= 50))
+          && (!('shareToken' in data) || data.shareToken == null || (data.shareToken is string && data.shareToken.size() <= 120));
       }
 
-      allow read, delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+      function isSessionOwner(data) { return signedIn() && data.ownerId == request.auth.uid; }
+      function isSessionMemberById(data) { return signedIn() && 'memberIds' in data && request.auth.uid in data.memberIds; }
+      function isSessionMember(data) { return signedIn() && 'members' in data && data.members.keys().hasAny([request.auth.uid]); }
+      function isSessionEditor(data) { return isSessionMember(data) && data.members[request.auth.uid] == 'editor'; }
+      function sessionLinkViewable(data) { return 'linkAccess' in data && data.linkAccess == 'view'; }
+
+      function mySessionInviteRole() {
+        return request.auth.token.email != null
+          && exists(/databases/$(database)/documents/invites/$(request.auth.token.email.lower() + '__' + sessionId))
+          ? get(/databases/$(database)/documents/invites/$(request.auth.token.email.lower() + '__' + sessionId)).data.role
+          : 'none';
+      }
+
+      allow read: if isSessionOwner(resource.data)
+        || isSessionMemberById(resource.data)
+        || isSessionMember(resource.data)
+        || (signedIn() && sessionLinkViewable(resource.data))
+        || mySessionInviteRole() in ['viewer', 'editor'];
+      allow delete: if isSessionOwner(resource.data);
       allow create: if signedIn()
         && request.resource.data.ownerId == request.auth.uid
         && validSession(request.resource.data);
-      allow update: if signedIn()
-        && resource.data.ownerId == request.auth.uid
+
+      allow update: if isSessionOwner(resource.data)
         && request.resource.data.ownerId == resource.data.ownerId
         && validSession(request.resource.data);
+
+      // Editor: canvas contents only, never the sharing settings.
+      allow update: if isSessionEditor(resource.data)
+        && validSession(request.resource.data)
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.members == resource.data.members
+        && request.resource.data.memberIds == resource.data.memberIds
+        && request.resource.data.linkAccess == resource.data.linkAccess;
+
+      // Claiming an invite to a session.
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['members', 'memberIds', 'memberProfiles', 'invitedEmails', 'updatedAt'])
+        && request.resource.data.members.diff(resource.data.get('members', {})).affectedKeys().hasOnly([request.auth.uid])
+        && mySessionInviteRole() in ['viewer', 'editor']
+        && request.resource.data.members[request.auth.uid] == mySessionInviteRole()
+        && request.resource.data.memberIds.hasAll(resource.data.get('memberIds', []));
     }
 
     match /projects/{projectId} {
@@ -85,6 +136,9 @@ service cloud.firestore {
 
       function isProjectOwner(data) { return signedIn() && data.ownerId == request.auth.uid; }
       function isMember(data) { return signedIn() && 'members' in data && data.members.keys().hasAny([request.auth.uid]); }
+      // listProjects queries memberIds with array-contains; a list query is only allowed when the
+      // rule tests the same field, so this clause is what makes shared projects visible.
+      function isMemberById(data) { return signedIn() && 'memberIds' in data && request.auth.uid in data.memberIds; }
       function isEditor(data) { return isMember(data) && data.members[request.auth.uid] == 'editor'; }
       function linkViewable(data) { return 'linkAccess' in data && data.linkAccess == 'view'; }
 
@@ -98,8 +152,10 @@ service cloud.firestore {
 
       // A share link grants viewing only; editing needs membership.
       allow read: if isProjectOwner(resource.data)
+        || isMemberById(resource.data)
         || isMember(resource.data)
-        || (signedIn() && linkViewable(resource.data));
+        || (signedIn() && linkViewable(resource.data))
+        || myInviteRole() in ['viewer', 'editor'];
       allow delete: if isProjectOwner(resource.data);
       allow create: if signedIn()
         && request.resource.data.ownerId == request.auth.uid
@@ -122,10 +178,10 @@ service cloud.firestore {
       allow update: if signedIn()
         && request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['members', 'memberIds', 'memberProfiles', 'invitedEmails', 'updatedAt'])
-        && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([request.auth.uid])
+        && request.resource.data.members.diff(resource.data.get('members', {})).affectedKeys().hasOnly([request.auth.uid])
         && myInviteRole() in ['viewer', 'editor']
         && request.resource.data.members[request.auth.uid] == myInviteRole()
-        && request.resource.data.memberIds.hasAll(resource.data.memberIds);
+        && request.resource.data.memberIds.hasAll(resource.data.get('memberIds', []));
     }
 
     // Pending invitations, addressed by email until the person signs in.
@@ -136,12 +192,30 @@ service cloud.firestore {
       }
 
       allow read: if signedIn() && (resource.data.invitedBy == request.auth.uid || invitedMe());
+      // projectId is the target id; kind says which collection it lives in.
+      function ownsInviteTarget() {
+        return request.resource.data.get('kind', 'project') == 'session'
+          ? get(/databases/$(database)/documents/renderSessions/$(request.resource.data.projectId)).data.ownerId == request.auth.uid
+          : get(/databases/$(database)/documents/projects/$(request.resource.data.projectId)).data.ownerId == request.auth.uid;
+      }
+
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['email', 'projectId', 'projectName', 'role', 'invitedBy', 'invitedByName', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['email', 'kind', 'projectId', 'projectName', 'role', 'invitedBy', 'invitedByName', 'createdAt'])
         && request.resource.data.invitedBy == request.auth.uid
         && request.resource.data.role in ['viewer', 'editor']
+        && (!('kind' in request.resource.data) || request.resource.data.kind in ['project', 'session'])
         && request.resource.data.email is string && request.resource.data.email.size() <= 320
-        && get(/databases/$(database)/documents/projects/$(request.resource.data.projectId)).data.ownerId == request.auth.uid;
+        && ownsInviteTarget();
+      // Re-inviting the same person (e.g. changing their role) rewrites the existing invite.
+      allow update: if signedIn()
+        && resource.data.invitedBy == request.auth.uid
+        && request.resource.data.keys().hasOnly(['email', 'kind', 'projectId', 'projectName', 'role', 'invitedBy', 'invitedByName', 'createdAt'])
+        && request.resource.data.invitedBy == request.auth.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.projectId == resource.data.projectId
+        && request.resource.data.role in ['viewer', 'editor']
+        && (!('kind' in request.resource.data) || request.resource.data.kind in ['project', 'session'])
+        && ownsInviteTarget();
       allow delete: if signedIn() && (resource.data.invitedBy == request.auth.uid || invitedMe());
     }
   }

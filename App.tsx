@@ -49,6 +49,7 @@ import AccountHeaderControls from './components/account/AccountHeaderControls';
 import { useAccount } from './components/account/AccountProvider';
 import PresenceBar from './components/collab/PresenceBar';
 import { usePresence } from './components/collab/usePresence';
+import { useLiveProjectSync } from './components/collab/useLiveProjectSync';
 import type { PresencePeer } from './services/firebase/presenceService';
 import { worldToScreenPoint } from './services/geometry/canvasTransform';
 
@@ -734,7 +735,7 @@ const App: React.FC = () => {
       setProjectRaw(p ? ensureProjectLayers(p) : null);
     }
   };
-  const { resetCloudProject, registerProjectBridge, isReadOnlyProject, currentProjectId, currentProjectRole, openShare, user: accountUser } = useAccount();
+  const { resetCloudProject, registerProjectBridge, isReadOnlyProject, currentProjectId, currentProjectRole, currentProjectLoadedAtMs, setCloudProject, openShare, user: accountUser, pendingSharedSessionId } = useAccount();
   // A plan opened through a share link (or as an invited viewer) is read-only. Every geometry
   // change funnels through handleElementsChange / handleElementsCommit / pushHistory, so guarding
   // those three blocks all editing; the Firestore rules are what actually enforce it.
@@ -742,12 +743,6 @@ const App: React.FC = () => {
   const isReadOnlyRef = useRef(isReadOnly);
   isReadOnlyRef.current = isReadOnly;
 
-  // Live presence (cursors + who is on which view). Off unless a cloud project is open.
-  const presence = usePresence(currentProjectId, accountUser);
-  const presenceRef = useRef(presence);
-  presenceRef.current = presence;
-  const publishPointer = useCallback((point: Point | null) => presenceRef.current.setCursor(point), []);
-  const [followNonce, setFollowNonce] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [history, setHistory] = useState<Project[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -756,6 +751,15 @@ const App: React.FC = () => {
   const [snapPreviewImage, setSnapPreviewImage] = useState<string | null>(null);
   const [pendingSnapshots, setPendingSnapshots] = useState<{url: string, name: string}[]>([]);
   const [generativeInitialMode, setGenerativeInitialMode] = useState<GenerativeWizardMode>('chat');
+
+  // Live presence (cursors + who is on which view). Off unless a cloud project is open.
+  // While the Render Canvas is open it runs its own room (the session), so the plan's room pauses.
+  const isRenderCanvasOpen = isGenerativeWizardOpen && generativeInitialMode === 'ai-rendering';
+  const presence = usePresence(isRenderCanvasOpen ? null : currentProjectId, accountUser);
+  const presenceRef = useRef(presence);
+  presenceRef.current = presence;
+  const publishPointer = useCallback((point: Point | null) => presenceRef.current.setCursor(point), []);
+  const [followNonce, setFollowNonce] = useState(0);
   const [generativeInitialHub, setGenerativeInitialHub] = useState<AiRenderingHubType>('image_studio');
   const [generativeInitialText4hImageTest, setGenerativeInitialText4hImageTest] = useState(false);
   const [isUrbanWizardOpen, setIsUrbanWizardOpen] = useState(false);
@@ -1615,9 +1619,25 @@ const App: React.FC = () => {
   const projectRef = useRef<Project | null>(project);
   projectRef.current = project;
   useEffect(() => {
-    registerProjectBridge({ getProject: () => projectRef.current, openProject: loadImportedProject });
+    registerProjectBridge({
+      getProject: () => projectRef.current,
+      openProject: loadImportedProject,
+      renameProject: (name: string) => setProject(prev => (prev ? { ...prev, name } : prev)),
+    });
     return () => registerProjectBridge(null);
   }, [registerProjectBridge, loadImportedProject]);
+  // Live co-editing: owners and invited editors see each other's edits as they happen.
+  const handleRemoteSave = useCallback((savedAtMs: number) => {
+    if (currentProjectId) setCloudProject(currentProjectId, currentProjectRole, savedAtMs);
+  }, [currentProjectId, currentProjectRole, setCloudProject]);
+  const liveSyncStatus = useLiveProjectSync({
+    projectId: currentProjectId,
+    user: accountUser,
+    project,
+    setProject,
+    loadedAtMs: currentProjectLoadedAtMs,
+    onRemoteSave: handleRemoteSave,
+  });
   const hasOpenProject = !!project;
   useEffect(() => {
     if (!hasOpenProject) resetCloudProject();
@@ -1754,6 +1774,17 @@ const App: React.FC = () => {
     setGenerativeInitialText4hImageTest(false);
     setIsGenerativeWizardOpen(true);
   };
+
+  // Someone opened a shared render-session link: open the Render Canvas so it can load it.
+  useEffect(() => {
+    if (!pendingSharedSessionId || isRenderCanvasOpen) return;
+    if (!projectRef.current) createBlankProject();
+    setGenerativeInitialMode('ai-rendering');
+    setGenerativeInitialHub('image_studio');
+    setGenerativeInitialText4hImageTest(false);
+    setIsGenerativeWizardOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSharedSessionId, isRenderCanvasOpen]);
 
   const openText4hFromHome = (startWithImageTest: boolean) => {
     createBlankProject();
@@ -3588,6 +3619,15 @@ const App: React.FC = () => {
         {/* Right: Hidden Inputs & Minimalist Apple Hamburger Menu */}
         <div className="flex items-center gap-2">
           <PresenceBar levelNameFor={levelNameFor} onFollow={followPeer} />
+          {liveSyncStatus === 'live' && (
+            <span
+              className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold flex items-center gap-1.5"
+              title="Edits sync live with everyone who has this plan open. Press Save to keep a saved version."
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              Live
+            </span>
+          )}
           {isReadOnly && (
             <span
               className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold"
@@ -3598,7 +3638,7 @@ const App: React.FC = () => {
           )}
           {currentProjectId && currentProjectRole === 'owner' && (
             <button
-              onClick={openShare}
+              onClick={() => openShare()}
               className="p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 transition-all flex items-center justify-center cursor-pointer"
               title="Share this plan"
             >

@@ -19,7 +19,8 @@ import {
   Edit3,
   RotateCcw,
   Save,
-  FolderOpen
+  FolderOpen,
+  Share2
 } from 'lucide-react';
 import { WORKFLOWS, Workflow } from '../../services/aiRender/workflowRegistry';
 import { PromptEnhancerEngine } from '../../services/aiRender/promptEnhancer';
@@ -32,7 +33,9 @@ import { RasterCanvasOverlay } from '../../src/features/ai-rendering-canvas/comp
 import { ImageFullscreenModal } from '../../src/features/ai-rendering-canvas/components/ImageFullscreenModal';
 import { useAccount } from '../account/AccountProvider';
 import RenderSessionsPanel from '../RenderSessionsPanel';
-import { loadRenderSession, saveRenderSession, StorageLimitError, type CloudRenderSessionSummary } from '../../services/firebase/renderSessionsService';
+import { loadRenderSessionWithRole, saveRenderSession, StorageLimitError, type CloudRenderSessionSummary } from '../../services/firebase/renderSessionsService';
+import { canEdit, type ProjectRole } from '../../services/firebase/shareAccess';
+import { usePresence } from '../collab/usePresence';
 import { renderSessionThumbnail } from '../../services/firebase/renderSessionThumbnail';
 import { defaultSessionName } from '../../services/firebase/renderSessionSerialize';
 
@@ -149,13 +152,29 @@ export const AiRenderingPanel: React.FC<AiRenderingPanelProps> = ({ initialHub =
   const activeRunningNodeIdRef = useRef<string | null>(null);
 
   // Saved render sessions (see services/firebase/renderSessionsService.ts)
-  const { user, openAuth } = useAccount();
-  const [sessionMeta, setSessionMeta] = useState<{ id: string; name: string } | null>(null);
+  const { user, openAuth, openShare, pendingSharedSessionId, consumePendingSharedSession, announceSharedArrival } = useAccount();
+  const [sessionMeta, setSessionMeta] = useState<{ id: string; name: string; role: ProjectRole } | null>(null);
   const [isSavingSession, setIsSavingSession] = useState(false);
   const [saveProgress, setSaveProgress] = useState('');
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [isSessionsPanelOpen, setIsSessionsPanelOpen] = useState(false);
   const [isSessionDirty, setIsSessionDirty] = useState(false);
+
+  // Live presence for a saved session: everyone with it open shares one room.
+  const presenceRoom = sessionMeta ? `rs_${sessionMeta.id}` : null;
+  const presence = usePresence(presenceRoom, user);
+  useEffect(() => {
+    if (presenceRoom) presence.setView({ viewMode: 'render', drawingView: 'render', activeLevelId: 'render' });
+  }, [presenceRoom, presence]);
+  // Share which node is selected, so collaborators see it outlined in this user's colour.
+  const selectedGraphNodeId = graphStore.selectedNodeId;
+  useEffect(() => {
+    if (presenceRoom) presence.setSelection(selectedGraphNodeId ? [selectedGraphNodeId] : []);
+  }, [presenceRoom, presence, selectedGraphNodeId]);
+  const publishGraphPointer = useCallback(
+    (point: { x: number; y: number } | null) => presence.setCursor(point),
+    [presence],
+  );
 
   // Active Job states
   const [currentJob, setCurrentJob] = useState<Job | null>(null);
@@ -205,18 +224,24 @@ export const AiRenderingPanel: React.FC<AiRenderingPanelProps> = ({ initialHub =
     setSaveProgress('');
     try {
       const thumbnailDataUrl = await renderSessionThumbnail(snapshot.nodes);
+      const canOverwrite = !sessionMeta || canEdit(sessionMeta.role);
       const { sessionId } = await saveRenderSession(
         user.uid,
         snapshot,
         activeHub as GraphHubType,
         {
-          sessionId: sessionMeta?.id || null,
+          sessionId: canOverwrite ? sessionMeta?.id || null : null,
           name: sessionMeta?.name || defaultSessionName(),
           thumbnailDataUrl,
+          ownerEmail: user.email,
           onProgress: (done, total) => setSaveProgress(total > 1 ? `${done}/${total}` : ''),
         },
       );
-      setSessionMeta(prev => ({ id: sessionId, name: prev?.name || defaultSessionName() }));
+      setSessionMeta(prev => ({
+        id: sessionId,
+        name: canOverwrite ? prev?.name || defaultSessionName() : `${prev?.name || 'Render session'} (copy)`,
+        role: canOverwrite ? prev?.role || 'owner' : 'owner',
+      }));
       setIsSessionDirty(false);
     } catch (error: any) {
       setSessionError(error instanceof StorageLimitError ? error.message : (error?.message || 'This session could not be saved.'));
@@ -226,23 +251,45 @@ export const AiRenderingPanel: React.FC<AiRenderingPanelProps> = ({ initialHub =
     }
   }, [user, openAuth, activeHub, sessionMeta]);
 
-  const handleOpenSession = useCallback(async (summary: CloudRenderSessionSummary) => {
-    if (!user) return;
-    const doc = await loadRenderSession(user.uid, summary.id);
+  const openSessionById = useCallback(async (sessionId: string, fallbackName?: string) => {
+    if (!user) return null;
+    const loaded = await loadRenderSessionWithRole(user.uid, sessionId);
     graphStoreRef.current.hydrate({
-      nodes: doc.nodes,
-      edges: doc.edges,
-      viewport: doc.viewport,
-      selectedNodeId: doc.selectedNodeId,
+      nodes: loaded.doc.nodes,
+      edges: loaded.doc.edges,
+      viewport: loaded.doc.viewport,
+      selectedNodeId: loaded.doc.selectedNodeId,
     });
-    setActiveHub(doc.activeHub as HubType);
+    setActiveHub(loaded.doc.activeHub as HubType);
     setActiveBranchParentId(null);
-    setSessionMeta({ id: summary.id, name: summary.name });
+    setSessionMeta({ id: sessionId, name: fallbackName || loaded.name, role: loaded.role });
     setIsSessionsPanelOpen(false);
     setSessionError(null);
     // hydrate() triggers the dirty effect above; this session is freshly loaded, not edited.
     requestAnimationFrame(() => setIsSessionDirty(false));
+    return loaded;
   }, [user]);
+
+  const handleOpenSession = useCallback(
+    async (summary: CloudRenderSessionSummary) => { await openSessionById(summary.id, summary.name); },
+    [openSessionById],
+  );
+
+  // Someone opened a "share render session" link: load it as soon as the canvas is up.
+  useEffect(() => {
+    if (!pendingSharedSessionId || !user) return;
+    const sessionId = pendingSharedSessionId;
+    consumePendingSharedSession();
+    openSessionById(sessionId)
+      .then(loaded => {
+        if (loaded && loaded.role !== 'owner') {
+          announceSharedArrival({ kind: 'session', name: loaded.name, ownerEmail: loaded.ownerEmail, role: loaded.role });
+        }
+      })
+      .catch(error => {
+        setSessionError(error?.message || 'That shared session could not be opened.');
+      });
+  }, [pendingSharedSessionId, user, consumePendingSharedSession, openSessionById, announceSharedArrival]);
 
   // Developmental prompt inspection states
   const [compiledPromptText, setCompiledPromptText] = useState('');
@@ -1207,12 +1254,22 @@ export const AiRenderingPanel: React.FC<AiRenderingPanelProps> = ({ initialHub =
           <button
             onClick={handleSaveSession}
             disabled={isSavingSession || graphStore.nodes.length === 0}
-            title={user ? 'Save this canvas so you can continue later' : 'Sign in to save this canvas'}
+            title={user ? 'Save this render canvas as a session you can reopen later' : 'Sign in to save this session'}
             className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold flex items-center gap-1.5 cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {isSavingSession ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            <span>{isSavingSession ? (saveProgress ? `Saving ${saveProgress}` : 'Saving…') : 'Save'}</span>
+            <span>{isSavingSession ? (saveProgress ? `Saving ${saveProgress}` : 'Saving…') : 'Save session'}</span>
           </button>
+          {sessionMeta && sessionMeta.role === 'owner' && (
+            <button
+              onClick={() => openShare({ kind: 'session', id: sessionMeta.id })}
+              title="Share this render session"
+              className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1.5 text-slate-300 border border-slate-800 hover:bg-slate-800 hover:text-white cursor-pointer transition-colors"
+            >
+              <Share2 size={14} />
+              <span>Share</span>
+            </button>
+          )}
           <button
             onClick={() => (user ? setIsSessionsPanelOpen(true) : openAuth())}
             title="Open a saved session"
@@ -1228,6 +1285,7 @@ export const AiRenderingPanel: React.FC<AiRenderingPanelProps> = ({ initialHub =
       <div className="flex-1 flex min-w-0 overflow-hidden relative">
         <AiRenderingCanvas
           store={graphStore}
+          onGraphPointerMove={presenceRoom ? publishGraphPointer : undefined}
           isDrawerOpen={false}
           isOverlayOpen={rasterOverlayOpen || fullscreenModalOpen}
           onOpenDrawer={() => {}}

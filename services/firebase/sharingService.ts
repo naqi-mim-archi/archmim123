@@ -24,8 +24,20 @@ import {
   type ProjectRole,
 } from './shareAccess';
 
-// Firestore side of sharing. A link grants viewing only; editing comes from an invite,
-// which the invitee claims automatically the next time they sign in (no email is sent).
+// Firestore side of sharing, for both floorplan projects and saved render sessions.
+// A link grants viewing only; editing comes from an invite, which the invitee claims
+// automatically the next time they sign in (no email is sent from here).
+
+export type ShareKind = 'project' | 'session';
+
+export interface ShareTarget {
+  kind: ShareKind;
+  id: string;
+}
+
+const COLLECTIONS: Record<ShareKind, string> = { project: 'projects', session: 'renderSessions' };
+
+export const shareKindLabel = (kind: ShareKind) => (kind === 'session' ? 'render session' : 'plan');
 
 export interface ProjectMemberRow {
   uid: string;
@@ -35,7 +47,7 @@ export interface ProjectMemberRow {
 }
 
 export interface ProjectShareState {
-  projectId: string;
+  target: ShareTarget;
   name: string;
   ownerId: string;
   ownerEmail: string | null;
@@ -46,11 +58,11 @@ export interface ProjectShareState {
   role: ProjectRole;
 }
 
-const projectRef = (projectId: string) => doc(getFirebaseDb(), 'projects', projectId);
+const targetRef = (target: ShareTarget) => doc(getFirebaseDb(), COLLECTIONS[target.kind], target.id);
 
-export const getProjectShareState = async (projectId: string, uid: string | null): Promise<ProjectShareState> => {
-  const snap = await getDoc(projectRef(projectId));
-  if (!snap.exists()) throw new Error('Project not found.');
+export const getShareState = async (target: ShareTarget, uid: string | null): Promise<ProjectShareState> => {
+  const snap = await getDoc(targetRef(target));
+  if (!snap.exists()) throw new Error(`This ${shareKindLabel(target.kind)} could not be found.`);
   const data = snap.data() as any;
   const members: ProjectMemberRow[] = Object.entries((data.members || {}) as Record<string, MemberRole>).map(([memberUid, role]) => ({
     uid: memberUid,
@@ -59,8 +71,8 @@ export const getProjectShareState = async (projectId: string, uid: string | null
     email: data.memberProfiles?.[memberUid]?.email || '',
   }));
   return {
-    projectId,
-    name: data.name || 'Untitled Plan',
+    target,
+    name: data.name || (target.kind === 'session' ? 'Render session' : 'Untitled Plan'),
     ownerId: data.ownerId,
     ownerEmail: data.ownerEmail || null,
     linkAccess: data.linkAccess === 'view' ? 'view' : 'none',
@@ -71,54 +83,57 @@ export const getProjectShareState = async (projectId: string, uid: string | null
   };
 };
 
-export const setLinkAccess = async (projectId: string, linkAccess: LinkAccess): Promise<string | null> => {
-  const snap = await getDoc(projectRef(projectId));
+export const setLinkAccess = async (target: ShareTarget, linkAccess: LinkAccess): Promise<string | null> => {
+  const snap = await getDoc(targetRef(target));
   const existingToken = snap.data()?.shareToken || null;
   const shareToken = linkAccess === 'view' ? (existingToken || createShareToken()) : existingToken;
-  await updateDoc(projectRef(projectId), { linkAccess, shareToken: shareToken || null, updatedAt: serverTimestamp() });
+  await updateDoc(targetRef(target), { linkAccess, shareToken: shareToken || null, updatedAt: serverTimestamp() });
   return linkAccess === 'view' ? shareToken : null;
 };
 
 export const createInvite = async (
-  project: { id: string; name: string },
+  target: ShareTarget,
+  name: string,
   email: string,
   role: MemberRole,
   invitedBy: User,
 ): Promise<void> => {
   const normalized = normalizeEmail(email);
   const db = getFirebaseDb();
-  await setDoc(doc(db, 'invites', inviteId(normalized, project.id)), {
+  await setDoc(doc(db, 'invites', inviteId(normalized, target.id)), {
     email: normalized,
-    projectId: project.id,
-    projectName: project.name,
+    kind: target.kind,
+    projectId: target.id, // target id, whichever collection it lives in
+    projectName: name,
     role,
     invitedBy: invitedBy.uid,
     invitedByName: invitedBy.displayName || invitedBy.email || 'A collaborator',
     createdAt: serverTimestamp(),
   });
-  const snap = await getDoc(projectRef(project.id));
+  const snap = await getDoc(targetRef(target));
   const invitedEmails = [...new Set([...(snap.data()?.invitedEmails || []), normalized])];
-  await updateDoc(projectRef(project.id), { invitedEmails, updatedAt: serverTimestamp() });
+  await updateDoc(targetRef(target), { invitedEmails, updatedAt: serverTimestamp() });
 };
 
-export const revokeInvite = async (projectId: string, email: string): Promise<void> => {
+export const revokeInvite = async (target: ShareTarget, email: string): Promise<void> => {
   const normalized = normalizeEmail(email);
-  await deleteDoc(doc(getFirebaseDb(), 'invites', inviteId(normalized, projectId))).catch(() => undefined);
-  const snap = await getDoc(projectRef(projectId));
+  await deleteDoc(doc(getFirebaseDb(), 'invites', inviteId(normalized, target.id))).catch(() => undefined);
+  const snap = await getDoc(targetRef(target));
   const invitedEmails = (snap.data()?.invitedEmails || []).filter((entry: string) => entry !== normalized);
-  await updateDoc(projectRef(projectId), { invitedEmails, updatedAt: serverTimestamp() });
+  await updateDoc(targetRef(target), { invitedEmails, updatedAt: serverTimestamp() });
 };
 
-export const removeMember = async (projectId: string, uid: string): Promise<void> => {
-  const snap = await getDoc(projectRef(projectId));
+export const removeMember = async (target: ShareTarget, uid: string): Promise<void> => {
+  const snap = await getDoc(targetRef(target));
   const data = snap.data() as any;
   const { members, memberIds } = nextMembersAfterRemoval(data, uid);
   const memberProfiles = { ...(data?.memberProfiles || {}) };
   delete memberProfiles[uid];
-  await updateDoc(projectRef(projectId), { members, memberIds, memberProfiles, updatedAt: serverTimestamp() });
+  await updateDoc(targetRef(target), { members, memberIds, memberProfiles, updatedAt: serverTimestamp() });
 };
 
-// Called on every sign-in: turns invites addressed to this email into real membership.
+// Called on every sign-in: turns invites addressed to this email into real membership,
+// for both plans and render sessions.
 export const claimInvites = async (user: User): Promise<number> => {
   const email = normalizeEmail(user.email || '');
   if (!email) return 0;
@@ -126,20 +141,21 @@ export const claimInvites = async (user: User): Promise<number> => {
   let claimed = 0;
   const invites = await getDocs(query(collection(db, 'invites'), where('email', '==', email)));
   for (const invite of invites.docs) {
-    const { projectId, role } = invite.data() as { projectId: string; role: MemberRole };
+    const raw = invite.data() as { projectId: string; role: MemberRole; kind?: ShareKind };
+    const target: ShareTarget = { kind: raw.kind === 'session' ? 'session' : 'project', id: raw.projectId };
     try {
-      const snap = await getDoc(projectRef(projectId));
+      const snap = await getDoc(targetRef(target));
       if (!snap.exists()) {
         await deleteDoc(invite.ref).catch(() => undefined);
         continue;
       }
       const data = snap.data() as any;
-      const { members, memberIds } = nextMembersAfterInviteClaim(data, user.uid, role);
+      const { members, memberIds } = nextMembersAfterInviteClaim(data, user.uid, raw.role);
       const memberProfiles = {
         ...(data.memberProfiles || {}),
         [user.uid]: { name: user.displayName || email, email },
       };
-      await updateDoc(projectRef(projectId), {
+      await updateDoc(targetRef(target), {
         members,
         memberIds,
         memberProfiles,

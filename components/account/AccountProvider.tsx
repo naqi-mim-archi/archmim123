@@ -13,6 +13,7 @@ import { canEdit, parseShareParams, type ProjectRole } from '../../services/fire
 import TokensPanel, { type TokenShortfall } from '../TokensPanel';
 import AccountPanel from '../AccountPanel';
 import ProjectsPanel from '../ProjectsPanel';
+import SharedArrivalDialog, { type SharedArrival } from '../SharedArrivalDialog';
 
 // Reads the signed-in user outside React state (auth may resolve before the first render).
 const getAuthUserSync = (): User | null => {
@@ -29,6 +30,7 @@ const getAuthUserSync = (): User | null => {
 interface ProjectBridge {
   getProject: () => Project | null;
   openProject: (project: Project) => void;
+  renameProject?: (name: string) => void;
 }
 
 interface AccountContextValue {
@@ -39,7 +41,12 @@ interface AccountContextValue {
   // Sharing
   currentProjectRole: ProjectRole;
   isReadOnlyProject: boolean;
-  openShare: () => void;
+  openShare: (target?: { kind: 'project' | 'session'; id: string } | null) => void;
+  // A render session someone shared by link, waiting for the render canvas to open it.
+  pendingSharedSessionId: string | null;
+  consumePendingSharedSession: () => void;
+  // Shows the "… shared this with you" welcome after a shared link opens something.
+  announceSharedArrival: (arrival: SharedArrival) => void;
   openAuth: () => void;
   openTokens: (shortfall?: TokenShortfall | null) => void;
   openAccount: () => void;
@@ -62,6 +69,9 @@ const AccountContext = createContext<AccountContextValue>({
   currentProjectRole: null,
   isReadOnlyProject: false,
   openShare: () => undefined,
+  pendingSharedSessionId: null,
+  consumePendingSharedSession: () => undefined,
+  announceSharedArrival: () => undefined,
   openAuth: () => undefined,
   openTokens: () => undefined,
   openAccount: () => undefined,
@@ -88,7 +98,10 @@ export const AccountProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [currentProjectRole, setCurrentProjectRole] = useState<ProjectRole>(null);
   const [currentProjectLoadedAtMs, setCurrentProjectLoadedAtMs] = useState<number | null>(null);
   const [isShareOpen, setIsShareOpen] = useState(false);
-  const pendingShareRef = useRef<{ projectId: string; token: string | null } | null>(null);
+  const [shareTarget, setShareTarget] = useState<{ kind: 'project' | 'session'; id: string } | null>(null);
+  const [pendingSharedSessionId, setPendingSharedSessionId] = useState<string | null>(null);
+  const [sharedArrival, setSharedArrival] = useState<SharedArrival | null>(null);
+  const pendingShareRef = useRef<{ projectId: string; token: string | null; kind: 'project' | 'session' } | null>(null);
   const [bridgeProject, setBridgeProject] = useState<Project | null>(null);
   const bridgeRef = useRef<ProjectBridge | null>(null);
   const pendingCheckoutSuccess = useRef(false);
@@ -112,7 +125,8 @@ export const AccountProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const pending = pendingShareRef.current;
             if (!pending) return;
             pendingShareRef.current = null;
-            void openSharedProjectRef.current?.(pending.projectId);
+            if (pending.kind === 'session') setPendingSharedSessionId(pending.projectId);
+            else void openSharedProjectRef.current?.(pending.projectId);
           });
       }
       if (nextUser && pendingCheckoutSuccess.current) {
@@ -138,6 +152,7 @@ export const AccountProvider: React.FC<{ children: React.ReactNode }> = ({ child
     pendingShareRef.current = share;
     const params = new URLSearchParams(window.location.search);
     params.delete('p');
+    params.delete('rs');
     params.delete('s');
     const query = params.toString();
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
@@ -196,6 +211,9 @@ export const AccountProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setCurrentProjectId(projectId);
       setCurrentProjectRole(loaded.role);
       setCurrentProjectLoadedAtMs(loaded.updatedAtMs);
+      if (loaded.role !== 'owner') {
+        setSharedArrival({ kind: 'project', name: loaded.name, ownerEmail: loaded.ownerEmail, role: loaded.role });
+      }
     } catch (error) {
       console.warn('[Sharing] Could not open the shared project:', error);
       window.alert('That shared plan could not be opened. Ask the owner to check that the link is still switched on.');
@@ -228,7 +246,15 @@ export const AccountProvider: React.FC<{ children: React.ReactNode }> = ({ child
     balance,
     currentProjectRole,
     isReadOnlyProject: !!currentProjectId && currentProjectRole != null && !canEdit(currentProjectRole),
-    openShare: () => setIsShareOpen(true),
+    openShare: (target = null) => {
+      // Guard against being handed a click event (onClick={openShare}): only a real target counts.
+      const isTarget = !!target && (target.kind === 'project' || target.kind === 'session') && typeof target.id === 'string' && !!target.id;
+      setShareTarget(isTarget ? target : (currentProjectId ? { kind: 'project', id: currentProjectId } : null));
+      setIsShareOpen(true);
+    },
+    pendingSharedSessionId,
+    consumePendingSharedSession: () => setPendingSharedSessionId(null),
+    announceSharedArrival: (arrival: SharedArrival) => setSharedArrival(arrival),
     openAuth: () => setIsAuthOpen(true),
     openTokens: (shortfall = null) => setTokensState({ open: true, shortfall }),
     openAccount: () => setIsAccountOpen(true),
@@ -242,7 +268,7 @@ export const AccountProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCloudProject,
     resetCloudProject,
     registerProjectBridge,
-  }), [user, authReady, balance, currentProjectId, currentProjectRole, currentProjectLoadedAtMs, openProjects, setCloudProject, resetCloudProject, registerProjectBridge]);
+  }), [user, authReady, balance, currentProjectId, currentProjectRole, currentProjectLoadedAtMs, pendingSharedSessionId, openProjects, setCloudProject, resetCloudProject, registerProjectBridge]);
 
   return (
     <AccountContext.Provider value={value}>
@@ -254,6 +280,7 @@ export const AccountProvider: React.FC<{ children: React.ReactNode }> = ({ child
             onClose={() => setIsProjectsOpen(false)}
             uid={user?.uid || null}
             userName={user?.displayName || user?.email || null}
+            userEmail={user?.email || null}
             currentProject={bridgeProject}
             currentProjectId={currentProjectId}
             currentProjectRole={currentProjectRole}
@@ -264,6 +291,10 @@ export const AccountProvider: React.FC<{ children: React.ReactNode }> = ({ child
               setCurrentProjectLoadedAtMs(updatedAtMs ?? Date.now());
               setBridgeProject(bridgeRef.current?.getProject() || null);
             }}
+            onRenameProject={name => {
+              bridgeRef.current?.renameProject?.(name);
+              setBridgeProject(bridgeRef.current?.getProject() || null);
+            }}
             onOpenProject={(project, projectId, role, updatedAtMs) => {
               bridgeRef.current?.openProject(project);
               setCurrentProjectId(projectId);
@@ -272,9 +303,9 @@ export const AccountProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }}
           />
           <SharePanel
-            isOpen={isShareOpen && !!user && !!currentProjectId}
+            isOpen={isShareOpen && !!user && !!(shareTarget || currentProjectId)}
             onClose={() => setIsShareOpen(false)}
-            projectId={currentProjectId}
+            target={shareTarget || (currentProjectId ? { kind: 'project', id: currentProjectId } : null)}
             user={user}
           />
           <AccountPanel
@@ -293,6 +324,7 @@ export const AccountProvider: React.FC<{ children: React.ReactNode }> = ({ child
           />
         </>
       )}
+      <SharedArrivalDialog arrival={sharedArrival} onClose={() => setSharedArrival(null)} />
       <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
     </AccountContext.Provider>
   );

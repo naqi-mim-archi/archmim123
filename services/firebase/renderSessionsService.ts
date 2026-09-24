@@ -8,6 +8,7 @@ import type {
   RenderSessionDocV1,
 } from '../../src/features/ai-rendering-canvas/types/graph';
 import { getFirebaseDb, getFirebaseStorage } from './firebaseConfig';
+import { resolveRole, type LinkAccess, type ProjectRole } from './shareAccess';
 import { checkStorageAllowance } from '../billing/balanceClient';
 import { StorageLimitError } from './projectsService';
 import {
@@ -37,6 +38,9 @@ export interface CloudRenderSessionSummary {
   storageMode: 'inline' | 'storage';
   createdAt: Date | null;
   updatedAt: Date | null;
+  ownerId: string;
+  role: ProjectRole;
+  linkAccess: LinkAccess;
 }
 
 const sessionPath = (uid: string, sessionId: string) => `users/${uid}/renderSessions/${sessionId}`;
@@ -54,6 +58,7 @@ export const saveRenderSession = async (
     name?: string;
     thumbnailDataUrl?: string | null;
     onProgress?: (done: number, total: number) => void;
+    ownerEmail?: string | null;
   } = {},
 ): Promise<{ sessionId: string; storageMode: 'inline' | 'storage' }> => {
   const db = getFirebaseDb();
@@ -62,18 +67,26 @@ export const saveRenderSession = async (
   // Resolve the target session (an id we no longer own becomes a new session).
   let sessionId = options.sessionId || null;
   let previous: RenderSessionDocV1 | null = null;
+  let existingData: any = null;
   if (sessionId) {
     try {
       const existing = await getDoc(doc(db, 'renderSessions', sessionId));
-      if (!existing.exists() || existing.data()?.ownerId !== userId) sessionId = null;
-      else previous = await loadRenderSession(userId, sessionId).catch(() => null);
+      const role = existing.exists() ? resolveRole(existing.data() as any, userId) : null;
+      // A viewer saving a shared session gets their own copy rather than an error.
+      if (!existing.exists() || !(role === 'owner' || role === 'editor')) sessionId = null;
+      else {
+        existingData = existing.data();
+        previous = await loadRenderSession(userId, sessionId).catch(() => null);
+      }
     } catch {
       sessionId = null;
     }
   }
   const isNew = !sessionId;
   if (!sessionId) sessionId = doc(collection(db, 'renderSessions')).id;
-  const base = sessionPath(userId, sessionId);
+  // Files live under the owner's prefix, so their storage quota is the one that counts.
+  const ownerId = existingData?.ownerId || userId;
+  const base = sessionPath(ownerId, sessionId);
 
   // Quota check before any Storage write, covering only what is actually new.
   const newImageBytes = await estimateNewUploadBytes(snapshot.nodes, sha256Hex, previous?.assets);
@@ -117,7 +130,7 @@ export const saveRenderSession = async (
   }
 
   const record: Record<string, unknown> = {
-    ownerId: userId,
+    ownerId,
     name: (options.name || defaultSessionName()).slice(0, 200),
     hub: activeHub,
     nodeCount: snapshot.nodes.length,
@@ -128,7 +141,14 @@ export const saveRenderSession = async (
     dataUrl,
     updatedAt: serverTimestamp(),
   };
-  if (isNew) record.createdAt = serverTimestamp();
+  // Shown to people it's shared with ("… shared this with you"). Only the owner stamps it.
+  if (ownerId === userId && options.ownerEmail) record.ownerEmail = String(options.ownerEmail).slice(0, 320);
+  if (isNew) {
+    record.createdAt = serverTimestamp();
+    record.linkAccess = 'none';
+    record.members = {};
+    record.memberIds = [];
+  }
 
   await setDoc(doc(db, 'renderSessions', sessionId), record, { merge: !isNew });
   if (!isNew && storageMode === 'inline') {
@@ -137,13 +157,21 @@ export const saveRenderSession = async (
   return { sessionId, storageMode };
 };
 
+// Sessions this user owns plus the ones shared with them.
 export const listRenderSessions = async (userId: string): Promise<CloudRenderSessionSummary[]> => {
-  const snap = await getDocs(query(collection(getFirebaseDb(), 'renderSessions'), where('ownerId', '==', userId)));
-  return snap.docs
-    .map(entry => {
-      const data = entry.data();
+  const sessions = collection(getFirebaseDb(), 'renderSessions');
+  const [owned, shared] = await Promise.all([
+    getDocs(query(sessions, where('ownerId', '==', userId))),
+    getDocs(query(sessions, where('memberIds', 'array-contains', userId))).catch(() => null),
+  ]);
+  if (!shared) console.warn('[Render session] The shared-sessions query was refused; showing your own sessions only.');
+  const docs = new Map<string, any>();
+  for (const entry of shared?.docs || []) docs.set(entry.id, entry.data());
+  for (const entry of owned.docs) docs.set(entry.id, entry.data());
+  return [...docs.entries()]
+    .map(([id, data]) => {
       return {
-        id: entry.id,
+        id,
         name: data.name || 'Render session',
         hub: (data.hub || 'image_studio') as HubType,
         nodeCount: Number(data.nodeCount) || 0,
@@ -152,14 +180,42 @@ export const listRenderSessions = async (userId: string): Promise<CloudRenderSes
         storageMode: data.storageMode === 'storage' ? 'storage' : 'inline',
         createdAt: toDate(data.createdAt),
         updatedAt: toDate(data.updatedAt),
+        ownerId: data.ownerId,
+        role: resolveRole(data, userId),
+        linkAccess: data.linkAccess === 'view' ? 'view' : 'none',
       } as CloudRenderSessionSummary;
     })
     .sort((a, b) => (b.updatedAt?.getTime() || 0) - (a.updatedAt?.getTime() || 0));
 };
 
+export interface LoadedRenderSession {
+  doc: RenderSessionDocV1;
+  role: ProjectRole;
+  name: string;
+  ownerId: string;
+  ownerEmail: string | null;
+}
+
+export const loadRenderSessionWithRole = async (userId: string | null, sessionId: string): Promise<LoadedRenderSession> => {
+  const snap = await getDoc(doc(getFirebaseDb(), 'renderSessions', sessionId));
+  if (!snap.exists()) throw new Error('Session not found.');
+  const data = snap.data() as any;
+  const role = resolveRole(data, userId);
+  if (!role) throw new Error('Session not found.');
+  const parsed = data.storageMode === 'storage'
+    ? await (async () => {
+        if (!data.dataUrl) throw new Error('This session is missing its saved canvas data.');
+        const response = await fetch(data.dataUrl);
+        if (!response.ok) throw new Error(`Could not download this session (HTTP ${response.status}).`);
+        return parseSessionDoc(await response.json());
+      })()
+    : parseSessionDoc(JSON.parse(data.data));
+  return { doc: parsed, role, name: data.name || 'Render session', ownerId: data.ownerId, ownerEmail: data.ownerEmail || null };
+};
+
 export const loadRenderSession = async (userId: string, sessionId: string): Promise<RenderSessionDocV1> => {
   const snap = await getDoc(doc(getFirebaseDb(), 'renderSessions', sessionId));
-  if (!snap.exists() || snap.data()?.ownerId !== userId) throw new Error('Session not found.');
+  if (!snap.exists() || !resolveRole(snap.data() as any, userId)) throw new Error('Session not found.');
   const data = snap.data();
   if (data.storageMode === 'storage') {
     if (!data.dataUrl) throw new Error('This session is missing its saved canvas data.');

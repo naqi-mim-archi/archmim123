@@ -54,6 +54,17 @@ const toDate = (value: any): Date | null => (value && typeof value.toDate === 'f
 
 const dataUrlBytes = (dataUrl: string) => Math.ceil(((dataUrl.split(',')[1] || '').length * 3) / 4);
 
+// Wraps a save step so a failure says which one (quota check, thumbnail, payload, record).
+const step = async <T>(label: string, run: () => Promise<T>): Promise<T> => {
+  try {
+    return await run();
+  } catch (error: any) {
+    const code = error?.code ? ` [${error.code}]` : '';
+    console.error(`[Cloud save] ${label} failed${code}:`, error);
+    throw Object.assign(new Error(`${label} failed: ${error?.message || error}${code}`), { code: error?.code, step: label });
+  }
+};
+
 export const saveProject = async (
   userId: string,
   project: Project,
@@ -64,6 +75,7 @@ export const saveProject = async (
     // The updatedAt we last saw; a newer stored copy raises ConcurrentEditError instead of overwriting.
     expectedUpdatedAtMs?: number | null;
     editorName?: string | null;
+    ownerEmail?: string | null;
   } = {},
 ): Promise<{ projectId: string; storageMode: 'inline' | 'storage' }> => {
   const db = getFirebaseDb();
@@ -76,7 +88,7 @@ export const saveProject = async (
   // Check before any write that goes to Storage.
   const storageBoundBytes = thumbnailBytes + (storageMode === 'storage' ? payloadBytes : 0);
   if (storageBoundBytes > 0) {
-    const allowance = await checkStorageAllowance(storageBoundBytes);
+    const allowance = await step('Storage quota check', () => checkStorageAllowance(storageBoundBytes));
     if (!allowance.allowed) {
       throw new StorageLimitError(allowance.message || 'This save would take you past your storage limit.');
     }
@@ -112,16 +124,20 @@ export const saveProject = async (
 
   let thumbnailUrl: string | null = null;
   if (options.thumbnailDataUrl) {
-    const thumbRef = ref(storage, `${base}/thumbnail.jpg`);
-    await uploadString(thumbRef, options.thumbnailDataUrl, 'data_url', { contentType: 'image/jpeg' });
-    thumbnailUrl = await getDownloadURL(thumbRef);
+    thumbnailUrl = await step('Thumbnail upload', async () => {
+      const thumbRef = ref(storage, `${base}/thumbnail.jpg`);
+      await uploadString(thumbRef, options.thumbnailDataUrl!, 'data_url', { contentType: 'image/jpeg' });
+      return getDownloadURL(thumbRef);
+    });
   }
 
   let dataUrl: string | null = null;
   if (storageMode === 'storage') {
-    const dataRef = ref(storage, `${base}/project.json`);
-    await uploadBytes(dataRef, new Blob([json], { type: 'application/json' }), { contentType: 'application/json' });
-    dataUrl = await getDownloadURL(dataRef);
+    dataUrl = await step('Project payload upload', async () => {
+      const dataRef = ref(storage, `${base}/project.json`);
+      await uploadBytes(dataRef, new Blob([json], { type: 'application/json' }), { contentType: 'application/json' });
+      return getDownloadURL(dataRef);
+    });
   }
 
   const record: Record<string, unknown> = {
@@ -137,6 +153,7 @@ export const saveProject = async (
     lastEditorName: (options.editorName || 'Someone').slice(0, 120),
     updatedAt: serverTimestamp(),
   };
+  if (ownerId === userId && options.ownerEmail) record.ownerEmail = String(options.ownerEmail).slice(0, 320);
   if (isNew) {
     record.createdAt = serverTimestamp();
     record.linkAccess = 'none';
@@ -144,7 +161,9 @@ export const saveProject = async (
     record.memberIds = [];
   }
 
-  await setDoc(doc(db, 'projects', projectId), record, { merge: !isNew });
+  await step(isNew ? 'Creating the project record' : 'Updating the project record',
+    () => setDoc(doc(db, 'projects', projectId!), record, { merge: !isNew }));
+  console.log(`[Cloud save] saved ${projectId} (${storageMode}, ${Object.keys(record).length} fields)`);
 
   // A project that shrank back to inline no longer needs its Storage copy.
   if (!isNew && storageMode === 'inline') {
@@ -175,6 +194,7 @@ export const listProjects = async (userId: string): Promise<CloudProjectSummary[
     getDocs(query(projects, where('ownerId', '==', userId))),
     getDocs(query(projects, where('memberIds', 'array-contains', userId))).catch(() => null),
   ]);
+  if (!shared) console.warn('[Cloud save] The shared-projects query was refused; showing your own projects only.');
   const byId = new Map<string, CloudProjectSummary>();
   for (const entry of shared?.docs || []) byId.set(entry.id, toSummary(entry.id, entry.data(), userId));
   for (const entry of owned.docs) byId.set(entry.id, toSummary(entry.id, entry.data(), userId));
@@ -185,6 +205,7 @@ export interface LoadedProject {
   project: Project;
   role: ProjectRole;
   ownerId: string;
+  ownerEmail: string | null;
   name: string;
   updatedAtMs: number;
 }
@@ -211,7 +232,7 @@ export const loadProjectWithRole = async (userId: string | null, projectId: stri
   } else {
     project = JSON.parse(data.data);
   }
-  return { project, role, ownerId: data.ownerId, name: data.name || 'Untitled Plan', updatedAtMs: data.updatedAt?.toMillis?.() ?? 0 };
+  return { project, role, ownerId: data.ownerId, ownerEmail: data.ownerEmail || null, name: data.name || 'Untitled Plan', updatedAtMs: data.updatedAt?.toMillis?.() ?? 0 };
 };
 
 export const loadProject = async (userId: string, projectId: string): Promise<Project> =>

@@ -126,6 +126,7 @@ export const sameView = (a: PresenceView | null | undefined, b: PresenceView | n
 
 export const describeView = (view: PresenceView | null | undefined, levelName?: string): string => {
   if (!view) return 'Somewhere else';
+  if (view.viewMode === 'render') return 'Render canvas';
   if (view.viewMode === '3D') return '3D view';
   if (view.drawingView && view.drawingView.startsWith('elevation-')) {
     const direction = view.drawingView.split('-')[1]?.toUpperCase();

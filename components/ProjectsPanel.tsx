@@ -19,12 +19,15 @@ interface ProjectsPanelProps {
   onClose: () => void;
   uid: string | null;
   userName?: string | null;
+  userEmail?: string | null;
   currentProject: Project | null;
   currentProjectId: string | null;
   currentProjectRole?: ProjectRole;
   currentProjectLoadedAtMs?: number | null;
   onSaved: (projectId: string, updatedAtMs?: number | null) => void;
   onOpenProject: (project: Project, projectId: string, role?: ProjectRole, updatedAtMs?: number | null) => void;
+  // Saving under a new name renames the open project too, so the title bar agrees with the list.
+  onRenameProject?: (name: string) => void;
 }
 
 const sectionLabel = 'text-[10px] font-bold text-slate-400 uppercase tracking-widest';
@@ -32,12 +35,18 @@ const sectionLabel = 'text-[10px] font-bold text-slate-400 uppercase tracking-wi
 const formatDate = (date: Date | null) =>
   date ? `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}` : '';
 
-const describeError = (err: any) =>
-  err instanceof StorageLimitError ? err.message : err?.code ? getFirebaseAuthErrorMessage(err) : err?.message || String(err);
+const describeError = (err: any) => {
+  if (err instanceof StorageLimitError) return err.message;
+  // Keep the Firebase code visible: "permission denied" and "offline" read the same otherwise.
+  const code = typeof err?.code === 'string' ? err.code : null;
+  const message = err?.message ? String(err.message).replace(/^Firebase:\s*/, '') : String(err);
+  if (code?.startsWith('auth/')) return getFirebaseAuthErrorMessage(err);
+  return code ? `${message} [${code}]` : message;
+};
 
 const ProjectsPanel: React.FC<ProjectsPanelProps> = ({
-  isOpen, onClose, uid, userName, currentProject, currentProjectId,
-  currentProjectRole, currentProjectLoadedAtMs, onSaved, onOpenProject,
+  isOpen, onClose, uid, userName, userEmail, currentProject, currentProjectId,
+  currentProjectRole, currentProjectLoadedAtMs, onSaved, onOpenProject, onRenameProject,
 }) => {
   const [projects, setProjects] = useState<CloudProjectSummary[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -46,6 +55,8 @@ const ProjectsPanel: React.FC<ProjectsPanelProps> = ({
   const [error, setError] = useState<string | null>(null);
   // Someone else saved while this copy was open: the user chooses what happens next.
   const [conflict, setConflict] = useState<{ editorName: string } | null>(null);
+  // Saving always asks for a name first (pre-filled with the current one).
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!uid) return;
@@ -62,6 +73,7 @@ const ProjectsPanel: React.FC<ProjectsPanelProps> = ({
       setNotice(null);
       setError(null);
       setConfirmDeleteId(null);
+      setNameDraft(null);
       return;
     }
     setProjects(null);
@@ -73,20 +85,24 @@ const ProjectsPanel: React.FC<ProjectsPanelProps> = ({
   const isUpdate = !!currentProjectId && !!projects?.some(project => project.id === currentProjectId);
   const isViewerOnCurrent = !!currentProjectId && currentProjectRole != null && !canEdit(currentProjectRole);
 
-  const save = async (options: { force?: boolean; asCopy?: boolean } = {}) => {
+  const save = async (options: { force?: boolean; asCopy?: boolean; name?: string } = {}) => {
     if (!currentProject || !uid) return;
+    const chosenName = (options.name ?? nameDraft ?? currentProject.name ?? 'Untitled Plan').trim() || 'Untitled Plan';
     setBusy('save');
     setError(null);
     setNotice(null);
     try {
-      const { projectId } = await saveProject(uid, currentProject, {
+      const { projectId } = await saveProject(uid, { ...currentProject, name: chosenName }, {
         projectId: options.asCopy ? null : currentProjectId,
-        name: options.asCopy ? `${currentProject.name || 'Untitled Plan'} (copy)` : currentProject.name,
+        name: options.asCopy ? `${chosenName} (copy)` : chosenName,
         thumbnailDataUrl: renderProjectThumbnail(currentProject),
         expectedUpdatedAtMs: options.force || options.asCopy ? null : currentProjectLoadedAtMs ?? null,
         editorName: userName || 'Someone',
+        ownerEmail: userEmail || null,
       });
       setConflict(null);
+      if (!options.asCopy && chosenName !== currentProject.name) onRenameProject?.(chosenName);
+      setNameDraft(null);
       onSaved(projectId, Date.now());
       setNotice(options.asCopy ? 'Saved as a new copy.' : isUpdate ? 'Project updated.' : 'Project saved to your account.');
       await refresh();
@@ -98,7 +114,8 @@ const ProjectsPanel: React.FC<ProjectsPanelProps> = ({
     }
   };
 
-  const handleSave = () => save();
+  // Step 1: ask for the name. Step 2 (the confirm button below) does the save.
+  const handleSave = () => setNameDraft(currentProject?.name || 'Untitled Plan');
 
   const handleOpen = async (summary: CloudProjectSummary) => {
     setBusy(summary.id);
@@ -145,7 +162,7 @@ const ProjectsPanel: React.FC<ProjectsPanelProps> = ({
         </div>
 
         <div className="overflow-y-auto p-6 space-y-4">
-          {currentProject && !isViewerOnCurrent && (
+          {currentProject && !isViewerOnCurrent && nameDraft === null && (
             <button
               onClick={handleSave}
               disabled={!!busy}
@@ -154,6 +171,46 @@ const ProjectsPanel: React.FC<ProjectsPanelProps> = ({
               {busy === 'save' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               {isUpdate ? `Save changes to "${currentProject.name || 'Untitled Plan'}"` : 'Save current project'}
             </button>
+          )}
+
+          {currentProject && !isViewerOnCurrent && nameDraft !== null && (
+            <div className="space-y-2">
+              <div className={sectionLabel}>Project name</div>
+              <input
+                autoFocus
+                value={nameDraft}
+                maxLength={200}
+                onChange={e => setNameDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') void save();
+                  if (e.key === 'Escape') { e.stopPropagation(); setNameDraft(null); }
+                }}
+                placeholder="Untitled Plan"
+                className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-sm font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setNameDraft(null)}
+                  disabled={!!busy}
+                  className="flex-1 py-3 bg-white border border-slate-200 rounded-2xl font-bold text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void save()}
+                  disabled={!!busy}
+                  className="flex-[2] py-3 bg-slate-900 text-white rounded-2xl font-bold text-sm hover:bg-slate-800 disabled:opacity-60 flex items-center justify-center gap-2"
+                >
+                  {busy === 'save' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {isUpdate ? 'Save' : 'Save to my account'}
+                </button>
+              </div>
+              {isUpdate && (
+                <p className="text-[10px] font-medium text-slate-400">
+                  Changing the name here renames the saved project.
+                </p>
+              )}
+            </div>
           )}
 
           {currentProject && isViewerOnCurrent && (
@@ -185,7 +242,12 @@ const ProjectsPanel: React.FC<ProjectsPanelProps> = ({
           {projects === null ? (
             <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 text-slate-400 animate-spin" /></div>
           ) : projects.length === 0 ? (
-            <p className="text-xs font-medium text-slate-400">Nothing saved yet.</p>
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-slate-400">No floorplan projects saved yet.</p>
+              <p className="text-[10px] font-medium text-slate-400">
+                Saved render canvases are separate: open the Render Canvas and use its Sessions button.
+              </p>
+            </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
               {projects.map(summary => (

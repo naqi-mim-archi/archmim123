@@ -37,16 +37,29 @@ export const isLikelyEmail = (email: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s
 // One invite per (email, project). Emails cannot contain '/', so this is a legal document id.
 export const inviteId = (email: string, projectId: string): string => `${normalizeEmail(email)}__${projectId}`;
 
-export const buildShareUrl = (origin: string, projectId: string, token?: string | null): string => {
-  const base = String(origin || '').replace(/\/+$/, '');
-  return `${base}/?p=${encodeURIComponent(projectId)}${token ? `&s=${encodeURIComponent(token)}` : ''}`;
+export type ShareTargetKind = 'project' | 'session';
+
+// Links in invitations must work for the recipient, so they use the public site address
+// (VITE_PUBLIC_APP_URL) rather than wherever the sender happens to be, e.g. localhost.
+export const getPublicAppUrl = (fallbackOrigin: string): string => {
+  const configured = String(((import.meta as any).env || {}).VITE_PUBLIC_APP_URL || '').trim();
+  return (configured || fallbackOrigin).replace(/\/+$/, '');
 };
 
-export const parseShareParams = (search: string): { projectId: string; token: string | null } | null => {
+// ?p= a plan, ?rs= a render session. Both take an optional &s= token.
+export const buildShareUrl = (origin: string, id: string, token?: string | null, kind: ShareTargetKind = 'project'): string => {
+  const base = String(origin || '').replace(/\/+$/, '');
+  const key = kind === 'session' ? 'rs' : 'p';
+  return `${base}/?${key}=${encodeURIComponent(id)}${token ? `&s=${encodeURIComponent(token)}` : ''}`;
+};
+
+export const parseShareParams = (search: string): { projectId: string; token: string | null; kind: ShareTargetKind } | null => {
   const params = new URLSearchParams(String(search || '').replace(/^\?/, ''));
+  const sessionId = params.get('rs');
+  if (sessionId) return { projectId: sessionId, token: params.get('s'), kind: 'session' };
   const projectId = params.get('p');
   if (!projectId) return null;
-  return { projectId, token: params.get('s') };
+  return { projectId, token: params.get('s'), kind: 'project' };
 };
 
 export const createShareToken = (): string =>
@@ -77,4 +90,30 @@ export const nextMembersAfterRemoval = (
   const members = { ...(data?.members || {}) } as Record<string, MemberRole>;
   delete members[uid];
   return { members, memberIds: (data?.memberIds || []).filter(id => id !== uid) };
+};
+
+// No email is sent from the app itself; this composes the message the owner sends from
+// their own mail client, so the invite arrives from a real address the recipient knows.
+export const buildInviteMessage = (input: {
+  inviterName: string;
+  recipientEmail: string;
+  itemName: string;
+  kindLabel: string;
+  role: MemberRole;
+  url: string;
+}): { subject: string; body: string; mailto: string } => {
+  const action = input.role === 'editor' ? 'edit' : 'view';
+  const subject = `${input.inviterName} shared the ${input.kindLabel} "${input.itemName}" with you`;
+  const body = [
+    `${input.inviterName} has invited you to ${action} the ${input.kindLabel} "${input.itemName}" in ArchAI.`,
+    '',
+    `Open it here: ${input.url}`,
+    '',
+    `Sign in with this email address (${input.recipientEmail}) and your access is applied automatically.`,
+  ].join(String.fromCharCode(10));
+  return {
+    subject,
+    body,
+    mailto: `mailto:${encodeURIComponent(input.recipientEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`,
+  };
 };

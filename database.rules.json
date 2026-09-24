@@ -7,25 +7,105 @@
           "$sessionId": {
             ".write": "auth != null && auth.uid == $uid",
             ".validate": "newData.hasChildren(['uid', 'name', 'lastActive']) && newData.child('uid').val() == auth.uid",
-            "name": { ".validate": "newData.isString() && newData.val().length <= 120" },
-            "color": { ".validate": "newData.isString() && newData.val().length <= 32" },
-            "photoURL": { ".validate": "newData.isString() && newData.val().length <= 2048" },
+            "uid": {
+              ".validate": "newData.val() == auth.uid"
+            },
+            "name": {
+              ".validate": "newData.isString() && newData.val().length <= 120"
+            },
+            "color": {
+              ".validate": "newData.isString() && newData.val().length <= 32"
+            },
+            "photoURL": {
+              ".validate": "newData.isString() && newData.val().length <= 2048"
+            },
             "cursor": {
-              "x": { ".validate": "newData.isNumber()" },
-              "y": { ".validate": "newData.isNumber()" },
-              "$other": { ".validate": false }
+              "x": {
+                ".validate": "newData.isNumber()"
+              },
+              "y": {
+                ".validate": "newData.isNumber()"
+              },
+              "$other": {
+                ".validate": false
+              }
             },
             "view": {
-              "viewMode": { ".validate": "newData.isString() && newData.val().length <= 8" },
-              "drawingView": { ".validate": "newData.isString() && newData.val().length <= 32" },
-              "activeLevelId": { ".validate": "newData.isString() && newData.val().length <= 64" },
-              "$other": { ".validate": false }
+              "viewMode": {
+                ".validate": "newData.isString() && newData.val().length <= 8"
+              },
+              "drawingView": {
+                ".validate": "newData.isString() && newData.val().length <= 32"
+              },
+              "activeLevelId": {
+                ".validate": "newData.isString() && newData.val().length <= 64"
+              },
+              "$other": {
+                ".validate": false
+              }
             },
-            "camera": { ".validate": "newData.hasChildren()" },
-            "selectedIds": { ".validate": "newData.hasChildren() || newData.val() == null" },
-            "lastActive": { ".validate": "newData.isNumber()" },
-            "$other": { ".validate": false }
+            "camera": {
+              ".validate": "newData.hasChildren()"
+            },
+            "selectedIds": {
+              ".validate": "newData.hasChildren() || newData.val() == null"
+            },
+            "lastActive": {
+              ".validate": "newData.isNumber()"
+            },
+            "$other": {
+              ".validate": false
+            }
           }
+        }
+      }
+    },
+    "liveAccess": {
+      "$projectId": {
+        "$uid": {
+          ".read": "auth != null && auth.uid == $uid",
+          ".write": "auth != null && !newData.exists() && root.child('liveAccess').child($projectId).child(auth.uid).val() == 'owner'"
+        }
+      }
+    },
+    "live": {
+      "$projectId": {
+        ".read": "auth != null && root.child('liveAccess').child($projectId).child(auth.uid).val() != null",
+        ".write": "auth != null && (root.child('liveAccess').child($projectId).child(auth.uid).val() == 'owner' || root.child('liveAccess').child($projectId).child(auth.uid).val() == 'editor')",
+        "meta": {
+          ".validate": "newData.hasChildren(['j', 'by']) && newData.child('j').isString() && newData.child('j').val().length < 1000000 && newData.child('by').isString() && newData.child('by').val().length <= 64",
+          "j": {
+            ".validate": true
+          },
+          "by": {
+            ".validate": true
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "elements": {
+          "$elementId": {
+            ".validate": "newData.hasChildren(['j', 'by']) && newData.child('j').isString() && newData.child('j').val().length < 1000000 && newData.child('by').isString() && newData.child('by').val().length <= 64",
+            "j": {
+              ".validate": true
+            },
+            "by": {
+              ".validate": true
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "savedAt": {
+          ".validate": "newData.isNumber()"
+        },
+        "seededAt": {
+          ".validate": "newData.isNumber()"
+        },
+        "$other": {
+          ".validate": false
         }
       }
     }

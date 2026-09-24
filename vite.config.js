@@ -4,7 +4,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   for (const [key, value] of Object.entries(env)) {
     const isServerKey = ['APS_', 'UNIFIED_RENDERER_', 'FIREBASE_', 'VITE_FIREBASE_', 'STRIPE_', 'GOOGLE_VERTEX_'].some(prefix => key.startsWith(prefix))
-      || ['APP_BASE_URL', 'ALLOW_ANONYMOUS_API', 'ALLOW_UNMETERED_API'].includes(key);
+      || ['APP_BASE_URL', 'ALLOW_ANONYMOUS_API', 'ALLOW_UNMETERED_API', 'RESEND_API_KEY', 'INVITE_FROM_EMAIL', 'INVITE_MAIL_COLLECTION'].includes(key);
     if (isServerKey && value && !process.env[key]) process.env[key] = value;
   }
   const buildTimestamp = new Date().toLocaleString('en-GB', {
@@ -150,6 +150,7 @@ export default defineConfig(({ mode }) => {
             return;
           }
           const isBillingRequest = request.url?.startsWith('/api/billing/');
+          const isShareRequest = request.url?.startsWith('/api/share/');
           const isRevitExportRequest = request.url?.startsWith('/api/exports/revit');
           const isApsRevitImportRequest = request.url?.startsWith('/api/imports/aps-revit');
           const isAutoPlanRequest = request.url?.startsWith('/api/auto-plan');
@@ -162,7 +163,7 @@ export default defineConfig(({ mode }) => {
           const isText4jRequest = request.url?.startsWith('/api/text4j');
           const isSmartText2PlanRequest = request.url?.startsWith('/api/smart-text2plan');
           const isAiRenderRequest = request.url?.startsWith('/api/ai-render');
-          if (!isBillingRequest && !isRevitExportRequest && !isApsRevitImportRequest && !isAutoPlanRequest && !isText2PlanRequest && !isText4dRequest && !isText4eRequest && !isText4fRequest && !isText4gRequest && !isText4hRequest && !isText4jRequest && !isSmartText2PlanRequest && !isAiRenderRequest) {
+          if (!isBillingRequest && !isShareRequest && !isRevitExportRequest && !isApsRevitImportRequest && !isAutoPlanRequest && !isText2PlanRequest && !isText4dRequest && !isText4eRequest && !isText4fRequest && !isText4gRequest && !isText4hRequest && !isText4jRequest && !isSmartText2PlanRequest && !isAiRenderRequest) {
             next();
             return;
           }

@@ -8,6 +8,8 @@ import {
 } from '../types/graph';
 import { ArchElement } from '../../../../types';
 import { GraphEngine } from '../core/GraphEngine';
+import RenderRemoteCursors from '../../../../components/collab/RenderRemoteCursors';
+import { useRenderPeerSelections } from '../../../../components/collab/usePresence';
 import { GraphStore } from '../state/useGraphStore';
 import { CanvasNode } from './CanvasNode';
 import { EdgeLayer } from './EdgeLayer';
@@ -38,6 +40,8 @@ interface AiRenderingCanvasProps {
   onImportToCanvas?: (elements: ArchElement[], options?: { viewMode?: '2D' | '3D' }) => void;
   drawerChildren: React.ReactNode;
   isOverlayOpen?: boolean;
+  // Live collaboration: the pointer in graph coordinates, null when it leaves the canvas.
+  onGraphPointerMove?: (point: { x: number; y: number } | null) => void;
 }
 
 const EMPTY_INCOMING_NODES: CanvasNodeData[] = [];
@@ -55,8 +59,10 @@ export const AiRenderingCanvas: React.FC<AiRenderingCanvasProps> = ({
   onImportToCanvas,
   drawerChildren,
   isOverlayOpen = false,
+  onGraphPointerMove,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const remoteSelections = useRenderPeerSelections();
   const isPanningRef = useRef(false);
   const panStartRef = useRef<{ mouseX: number; mouseY: number; startPanX: number; startPanY: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -167,6 +173,11 @@ export const AiRenderingCanvas: React.FC<AiRenderingCanvasProps> = ({
       }));
     }
 
+    // Share the pointer with collaborators (graph coordinates, so it lands on the same node for them).
+    if (onGraphPointerMove && containerRef.current) {
+      onGraphPointerMove(GraphEngine.screenToGraph(e.clientX, e.clientY, containerRef.current.getBoundingClientRect(), store.viewport));
+    }
+
     // If dragging an edge connection, update target line
     if (store.pendingConnection && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
@@ -252,6 +263,7 @@ export const AiRenderingCanvas: React.FC<AiRenderingCanvasProps> = ({
         onPointerDown={handleCanvasPointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerLeave={() => onGraphPointerMove?.(null)}
         onDragOver={e => e.preventDefault()}
         onDrop={handleDrop}
         className="flex-1 h-full relative overflow-hidden cursor-grab active:cursor-grabbing bg-slate-950"
@@ -261,6 +273,8 @@ export const AiRenderingCanvas: React.FC<AiRenderingCanvasProps> = ({
           backgroundPosition: `${store.viewport.x}px ${store.viewport.y}px`,
         }}
       >
+        <RenderRemoteCursors viewport={store.viewport} />
+
         {/* Transform Layer for Pan & Zoom */}
         <div
           className="absolute inset-0 origin-top-left pointer-events-none"
@@ -289,6 +303,7 @@ export const AiRenderingCanvas: React.FC<AiRenderingCanvasProps> = ({
                   isConnecting={Boolean(store.pendingConnection)}
                   pendingSourceNodeId={store.pendingConnection?.sourceNodeId}
                   isSelected={store.selectedNodeId === node.id}
+                  remoteSelectors={remoteSelections.get(node.id)}
                   onSelect={store.selectNode}
                   onMove={store.moveNode}
                   onDelete={store.removeNode}

@@ -57,6 +57,8 @@ interface CanvasNodeProps {
   onGenerateNode?: (node: CanvasNodeData) => void;
   onImageUploaded?: (file: File, position?: { x: number; y: number }) => void;
   onImportToCanvas?: (elements: ArchElement[], options?: { viewMode?: '2D' | '3D' }) => void;
+  // Collaborators who currently have this node selected (live presence).
+  remoteSelectors?: { uid: string; name: string; color: string }[];
 }
 
 const CanvasNodeComponent: React.FC<CanvasNodeProps> = ({
@@ -65,6 +67,7 @@ const CanvasNodeComponent: React.FC<CanvasNodeProps> = ({
   isConnecting = false,
   pendingSourceNodeId,
   isSelected,
+  remoteSelectors,
   onSelect,
   onMove,
   onDelete,
@@ -81,6 +84,8 @@ const CanvasNodeComponent: React.FC<CanvasNodeProps> = ({
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [activeVariant, setActiveVariant] = useState(node.activeVariantIndex || 0);
+  // A finished render also keeps the image it was made from, so the two can be compared here.
+  const [showsInput, setShowsInput] = useState(false);
   const dragStartRef = useRef<{ mouseX: number; mouseY: number; nodeX: number; nodeY: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -97,7 +102,8 @@ const CanvasNodeComponent: React.FC<CanvasNodeProps> = ({
   const rawUrl = currentOutput?.url || node.imageUrl;
   const isBrokenKhronosUrl = Boolean(rawUrl && rawUrl.includes('KhronosGroup') && rawUrl.includes('Box.glb'));
   const currentImageUrl = isBrokenKhronosUrl ? getSample3DModelDataUri() : rawUrl;
-  const displayImageUrl = currentImageUrl || node.inputImageUrl;
+  const hasInputComparison = Boolean(node.inputImageUrl && currentImageUrl && node.inputImageUrl !== currentImageUrl);
+  const displayImageUrl = (hasInputComparison && showsInput ? node.inputImageUrl : currentImageUrl) || node.inputImageUrl;
   const hasDisplayImage = Boolean(displayImageUrl);
   const hasResult = Boolean(currentImageUrl) && node.status !== 'running';
   const isBlankCard = node.isInitialBlank && !displayImageUrl;
@@ -223,6 +229,9 @@ const CanvasNodeComponent: React.FC<CanvasNodeProps> = ({
       style={{
         transform: `translate3d(${node.position.x}px, ${node.position.y}px, 0)`,
         width: `${nodeWidth}px`,
+        ...(remoteSelectors && remoteSelectors.length > 0
+          ? { outline: `2px solid ${remoteSelectors[0].color}`, outlineOffset: '3px' }
+          : null),
       }}
       onPointerDown={handlePointerDown}
       onPointerUp={handleNodePointerUp}
@@ -236,6 +245,20 @@ const CanvasNodeComponent: React.FC<CanvasNodeProps> = ({
           : 'bg-slate-900/90 border-slate-800 hover:border-slate-700 shadow-xl shadow-black/40 z-10'
       }`}
     >
+      {remoteSelectors && remoteSelectors.length > 0 && (
+        <div className="absolute top-1.5 right-9 z-30 flex gap-1 pointer-events-none">
+          {remoteSelectors.slice(0, 3).map(selector => (
+            <span
+              key={selector.uid}
+              className="rounded-full px-2 py-0.5 text-[9px] font-bold text-white shadow whitespace-nowrap max-w-[120px] truncate"
+              style={{ backgroundColor: selector.color }}
+            >
+              {selector.name}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Visual Drop Target Badge during connection */}
       {isConnecting && isConnectionAllowed && (
         <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-indigo-600 border border-indigo-400 text-[9px] font-bold text-white shadow-lg shadow-indigo-500/50 flex items-center gap-1 z-30 pointer-events-none animate-bounce">
@@ -385,6 +408,33 @@ const CanvasNodeComponent: React.FC<CanvasNodeProps> = ({
                         alt={node.title}
                         className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-200"
                       />
+
+                      {/* The source image, alongside the render: click to swap which one is large */}
+                      {hasInputComparison && (
+                        <button
+                          onClick={e => { e.stopPropagation(); setShowsInput(v => !v); }}
+                          onDoubleClick={e => e.stopPropagation()}
+                          title={showsInput ? 'Showing the uploaded image — click for the render' : 'Uploaded image — click to compare'}
+                          className="absolute bottom-2 left-2 z-20 w-20 rounded-lg overflow-hidden border border-slate-700 bg-slate-950/90 shadow-lg hover:border-indigo-500 transition-colors cursor-pointer"
+                        >
+                          <img
+                            src={(showsInput ? currentImageUrl : node.inputImageUrl) || ''}
+                            alt={showsInput ? 'Render' : 'Uploaded image'}
+                            className="w-full aspect-square object-cover"
+                          />
+                          <span className="block py-0.5 text-[9px] font-bold text-slate-300 tracking-wide">
+                            {showsInput ? 'RENDER' : 'INPUT'}
+                          </span>
+                        </button>
+                      )}
+
+                      {/* Badge naming what the large image is */}
+                      {hasInputComparison && showsInput && (
+                        <div className="absolute top-2 left-2 bg-slate-900/80 backdrop-blur-md px-2 py-1 rounded-md border border-slate-700 flex items-center gap-1.5 z-10 text-[10px] font-bold text-indigo-300 shadow-sm">
+                          <Upload size={12} />
+                          <span>Uploaded image</span>
+                        </div>
+                      )}
 
                       {/* Upload Badge for input images */}
                       {displayImageUrl === node.inputImageUrl && !currentImageUrl && (

@@ -27,6 +27,7 @@ var getStripe = () => {
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
+import { getDatabaseWithUrl } from "firebase-admin/database";
 var APP_NAME = "archai-admin";
 var cached = null;
 var getFirebaseProjectId = () => process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || "";

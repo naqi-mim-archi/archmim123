@@ -2,6 +2,7 @@ import { verifyApiRequest } from './firebase/adminAuth';
 import { hasAdminCredentials } from './firebase/adminApp';
 import type { VerifiedIdToken } from './firebase/verifyIdToken';
 import { routeBillingApiRequest, BILLING_UNCONFIGURED_MESSAGE } from './billing/billingRoutes';
+import { routeShareApiRequest } from './share/shareApiRoutes';
 import { CHARGE_DETAILS, decideCharge, isEnvFlagOn, isPublicApiRoute, resolveRequestId } from './billing/routeCosts';
 import { INSUFFICIENT_TOKENS_STATUS } from './billing/pricing';
 import { refundTokens, spendTokens } from './billing/tokenLedger';
@@ -139,6 +140,10 @@ export const runGatedApiRequest = async (
 
   if (path.startsWith('/api/billing/')) {
     return routeBillingApiRequest({ method, url, body: incoming.body, user }, response);
+  }
+
+  if (path.startsWith('/api/share/')) {
+    return routeShareApiRequest({ method, url, body: incoming.body, user }, response);
   }
 
   // Someone else's job answers 404, not 403.

@@ -93,4 +93,24 @@ check(rulesAllowUpdate('editor', ['members']) === false, 'Rules mirror: editor m
 check(rulesAllowUpdate('viewer', ['data']) === false, 'Rules mirror: viewer may not write at all');
 check(rulesAllowUpdate(null, ['data']) === false, 'Rules mirror: a link viewer may not write');
 
+
+
+// --- invitation message (sent from the owner's own mail client) -----------------------------------
+const { buildInviteMessage } = await importTs('services/firebase/shareAccess.ts');
+const invite = buildInviteMessage({
+  inviterName: 'Mekael',
+  recipientEmail: 'friend@example.com',
+  itemName: 'Villa render',
+  kindLabel: 'render session',
+  role: 'editor',
+  url: 'https://archai.app/?rs=abc&s=tok',
+});
+check(invite.subject.includes('Villa render') && invite.subject.includes('Mekael'), 'Invite subject names the sender and the item');
+check(invite.body.includes('https://archai.app/?rs=abc&s=tok'), 'Invite body carries the link');
+check(invite.body.includes('edit'), 'Invite body states the granted role');
+check(invite.body.includes('friend@example.com'), 'Invite body tells them which address to sign in with');
+check(invite.mailto.startsWith('mailto:friend%40example.com?subject=') && invite.mailto.includes('&body='), 'mailto: link is well formed');
+check(!/[\n\r]/.test(invite.mailto), 'mailto: link has no raw newlines');
+check(buildInviteMessage({ inviterName: 'A', recipientEmail: 'b@c.co', itemName: 'Plan', kindLabel: 'plan', role: 'viewer', url: 'u' }).body.includes('view'), 'Viewer invites say view, not edit');
+
 finish();

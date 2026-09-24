@@ -130,6 +130,7 @@ export const subscribePresence = (projectId: string | null, selfUid: string | nu
   });
   const detach = () => {
     off(node, 'value', handler);
+    if (activeSubscription?.detach !== detach) return; // already replaced by another room
     peers = [];
     emit();
     activeSubscription = null;
@@ -182,9 +183,17 @@ const createHandle = (projectId: string, identity: PresenceIdentity): { handle: 
     writeBase();
   });
 
+  // A patch fails when our entry is gone (e.g. the previous connection's cleanup removed it after
+  // we re-announced). Re-announce and carry on, at most once every couple of seconds.
+  let lastRepairAt = 0;
   const patch = (fields: Record<string, unknown>) => {
     if (disposed) return;
-    void update(selfRef, { ...fields, lastActive: Date.now() }).catch(() => undefined);
+    void update(selfRef, { ...fields, lastActive: Date.now() }).catch(() => {
+      if (disposed || Date.now() - lastRepairAt < 2000) return;
+      lastRepairAt = Date.now();
+      void onDisconnect(selfRef).remove().catch(() => undefined);
+      writeBase();
+    });
   };
 
   const pump = () => {
@@ -234,6 +243,8 @@ const createHandle = (projectId: string, identity: PresenceIdentity): { handle: 
     window.clearInterval(heartbeat);
     document.removeEventListener('visibilitychange', onVisibility);
     off(connectedRef, 'value', connectedHandler);
+    // Every handle in this tab shares one path; a newer handle may already own it again.
+    if (joinState && joinState.dispose !== dispose && joinState.key.startsWith(`${projectId}:`)) return;
     void onDisconnect(selfRef).cancel().catch(() => undefined);
     void remove(selfRef).catch(() => undefined);
   };
@@ -264,6 +275,9 @@ const releasePresence = (key: string) => {
 };
 
 export { colorForUid };
+
+// Identifies this browser tab, so live edits can ignore their own echo.
+export const presenceSessionId = sessionId;
 
 // Test helper: how many peers are currently known.
 export const __peerCountForTests = () => peers.length;

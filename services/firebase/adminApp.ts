@@ -1,6 +1,7 @@
 import { cert, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
+import { getDatabaseWithUrl, type Database } from 'firebase-admin/database';
 
 // Owns the single firebase-admin app (Firestore + Storage only; ID tokens are verified in verifyIdToken.ts).
 
@@ -67,6 +68,18 @@ export const getAdminFirestore = (): Firestore => {
   const { app, error } = getAdmin();
   if (!app) throw new Error(error || 'FIREBASE_ADMIN_SA_KEY_JSON is not configured.');
   return getFirestore(app);
+};
+
+export const getRealtimeDbUrl = (): string =>
+  process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL || '';
+
+// Realtime Database (live co-editing access list).
+export const getAdminDatabase = (): Database => {
+  const { app, error } = getAdmin();
+  if (!app) throw new Error(error || 'FIREBASE_ADMIN_SA_KEY_JSON is not configured.');
+  const url = getRealtimeDbUrl();
+  if (!url) throw new Error('VITE_FIREBASE_DATABASE_URL is not configured.');
+  return getDatabaseWithUrl(url, app);
 };
 
 export const getAdminStorageBucket = () => {
