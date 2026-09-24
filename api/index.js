@@ -1396,7 +1396,11 @@ var runGatedApiRequest = async (incoming, response, dispatch2) => {
       const created = JOB_CREATE_PATTERNS.find((entry) => method === "POST" && entry.pattern.test(path3));
       if (created) {
         JOB_RECORDS.set(String(payload.jobId), { ownerId: user?.uid || null, chargeRequestId: chargedRequestId, kind: created.kind });
-        if (created.kind === "ai-render") watchAiRenderJob(String(payload.jobId), dispatch2);
+        if (created.kind === "ai-render" && isTerminalFailure(payload?.status)) {
+          if (user && chargedRequestId) await refundQuietly(user.uid, chargedRequestId, `Refund: AI render ${payload.status}`);
+        } else if (created.kind === "ai-render") {
+          watchAiRenderJob(String(payload.jobId), dispatch2);
+        }
       }
     }
     if (handled && !failed && jobRef?.kind === "ai-render") {
@@ -1404,7 +1408,11 @@ var runGatedApiRequest = async (incoming, response, dispatch2) => {
       if (record && /\/retry\/?$/.test(path3) && method === "POST" && user) {
         record.chargeRequestId = chargedRequestId;
         record.watching = false;
-        watchAiRenderJob(jobRef.jobId, dispatch2);
+        if (isTerminalFailure(payload?.status)) {
+          if (chargedRequestId) await refundQuietly(user.uid, chargedRequestId, `Refund: AI render ${payload.status}`);
+        } else {
+          watchAiRenderJob(jobRef.jobId, dispatch2);
+        }
       } else if (record?.ownerId && record.chargeRequestId && isTerminalFailure(payload?.status)) {
         void refundQuietly(record.ownerId, record.chargeRequestId, `Refund: AI render ${payload.status}`);
       }
@@ -6704,6 +6712,99 @@ Do NOT include furniture.
   }
 };
 
+// services/aiRender/jobStore.ts
+var COLLECTION = "aiRenderJobs";
+var JOB_TTL_MS = 6 * 60 * 60 * 1e3;
+var SWEEP_BATCH = 10;
+var INLINE_DATA_URL_LIMIT = 512;
+var DATA_URL = /^data:([^;,]+);base64,([\s\S]*)$/;
+var isDurableJobStoreEnabled = () => {
+  if (!process.env.VERCEL && process.env.AI_RENDER_DURABLE_JOBS !== "1") return false;
+  try {
+    return hasAdminCredentials();
+  } catch {
+    return false;
+  }
+};
+var extensionFor = (mimeType) => mimeType === "video/mp4" ? "mp4" : mimeType === "model/gltf-binary" ? "glb" : mimeType === "image/jpeg" ? "jpg" : "png";
+var stripHeavyValues = (value, depth = 0) => {
+  if (typeof value === "string") return value.length > INLINE_DATA_URL_LIMIT && value.startsWith("data:") ? "" : value;
+  if (Array.isArray(value)) return depth > 6 ? [] : value.map((entry) => stripHeavyValues(entry, depth + 1));
+  if (value && typeof value === "object") {
+    if (depth > 6) return {};
+    const out = {};
+    for (const [key, entry] of Object.entries(value)) {
+      const cleaned = stripHeavyValues(entry, depth + 1);
+      if (cleaned !== void 0) out[key] = cleaned;
+    }
+    return out;
+  }
+  return value === void 0 ? null : value;
+};
+var putJob = async (job) => {
+  if (!isDurableJobStoreEnabled() || !job?.jobId) return;
+  try {
+    const bucket = getAdminStorageBucket();
+    const outputs = [];
+    for (const [index, output] of (job.outputs || []).entries()) {
+      const match = typeof output?.signed_url === "string" ? DATA_URL.exec(output.signed_url) : null;
+      if (!match) {
+        outputs.push({ ...output, storagePath: null });
+        continue;
+      }
+      const [, mimeType, base64] = match;
+      const path3 = `${COLLECTION}/${job.jobId}/out_${index}.${extensionFor(mimeType)}`;
+      await bucket.file(path3).save(Buffer.from(base64, "base64"), { contentType: mimeType, resumable: false });
+      outputs.push({ ...output, signed_url: "", storagePath: path3, storageMimeType: mimeType });
+    }
+    await getAdminFirestore().collection(COLLECTION).doc(job.jobId).set({
+      ...stripHeavyValues({ ...job, outputs: void 0 }),
+      outputs,
+      storedAt: Date.now()
+    });
+  } catch (error) {
+    console.warn(`[AI-Render] Could not store job ${job.jobId}:`, error?.message || error);
+  }
+};
+var getStoredJob = async (jobId) => {
+  if (!isDurableJobStoreEnabled()) return null;
+  try {
+    const snap = await getAdminFirestore().collection(COLLECTION).doc(jobId).get();
+    if (!snap.exists) return null;
+    const job = snap.data();
+    const bucket = getAdminStorageBucket();
+    job.outputs = await Promise.all((job.outputs || []).map(async (output) => {
+      if (!output?.storagePath) return output;
+      try {
+        const [buffer] = await bucket.file(output.storagePath).download();
+        const mimeType = output.storageMimeType || "image/png";
+        return { ...output, signed_url: `data:${mimeType};base64,${buffer.toString("base64")}` };
+      } catch {
+        return output;
+      }
+    }));
+    return job;
+  } catch (error) {
+    console.warn(`[AI-Render] Could not read stored job ${jobId}:`, error?.message || error);
+    return null;
+  }
+};
+var sweepExpiredJobs = async () => {
+  if (!isDurableJobStoreEnabled()) return;
+  try {
+    const cutoff = Date.now() - JOB_TTL_MS;
+    const stale = await getAdminFirestore().collection(COLLECTION).where("storedAt", "<", cutoff).limit(SWEEP_BATCH).get();
+    if (stale.empty) return;
+    const bucket = getAdminStorageBucket();
+    for (const doc of stale.docs) {
+      await bucket.deleteFiles({ prefix: `${COLLECTION}/${doc.id}/` }).catch(() => void 0);
+      await doc.ref.delete().catch(() => void 0);
+    }
+  } catch (error) {
+    console.warn("[AI-Render] Could not clear old jobs:", error?.message || error);
+  }
+};
+
 // services/aiRender/backend.ts
 import { GoogleAuth as GoogleAuth10 } from "google-auth-library";
 import fs11 from "fs";
@@ -8554,6 +8655,13 @@ function normalizeError(err) {
   return "GENERATION_FAILED";
 }
 var JOBS_DB = {};
+var readJob = async (jobId) => {
+  const local = JOBS_DB[jobId];
+  if (local) return local;
+  const stored = await getStoredJob(jobId);
+  if (stored) JOBS_DB[jobId] = stored;
+  return stored || null;
+};
 var MOCK_ARCH_IMAGES = [
   "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80",
   // Contemporary villa
@@ -9104,6 +9212,13 @@ var routeAiRenderApiRequest = async (request, response) => {
       createdAt: Date.now()
     };
     JOBS_DB[jobId] = newJob;
+    if (isDurableJobStoreEnabled()) {
+      await runAsyncJob(jobId);
+      await putJob(JOBS_DB[jobId]);
+      void sweepExpiredJobs();
+      response.json(JOBS_DB[jobId]);
+      return true;
+    }
     void runAsyncJob(jobId);
     response.json(newJob);
     return true;
@@ -9111,7 +9226,7 @@ var routeAiRenderApiRequest = async (request, response) => {
   const statusMatch = url.match(/^\/api\/ai-render\/jobs\/([^/]+)$/);
   if (statusMatch && request.method === "GET") {
     const jobId = statusMatch[1];
-    const job = JOBS_DB[jobId];
+    const job = await readJob(jobId);
     if (!job) {
       response.status(404).json({ error: "Job not found" });
     } else {
@@ -9122,7 +9237,7 @@ var routeAiRenderApiRequest = async (request, response) => {
   const resultMatch = url.match(/^\/api\/ai-render\/jobs\/([^/]+)\/result$/);
   if (resultMatch && request.method === "GET") {
     const jobId = resultMatch[1];
-    const job = JOBS_DB[jobId];
+    const job = await readJob(jobId);
     if (!job) {
       response.status(404).json({ error: "Job not found" });
     } else {
@@ -9133,12 +9248,13 @@ var routeAiRenderApiRequest = async (request, response) => {
   const cancelMatch = url.match(/^\/api\/ai-render\/jobs\/([^/]+)\/cancel$/);
   if (cancelMatch && request.method === "POST") {
     const jobId = cancelMatch[1];
-    const job = JOBS_DB[jobId];
+    const job = await readJob(jobId);
     if (!job) {
       response.status(404).json({ error: "Job not found" });
     } else {
       job.status = "cancelled";
       job.logs?.push("Job cancelled by user.");
+      await putJob(job);
       response.json(job);
     }
     return true;
@@ -9146,12 +9262,18 @@ var routeAiRenderApiRequest = async (request, response) => {
   const retryMatch = url.match(/^\/api\/ai-render\/jobs\/([^/]+)\/retry$/);
   if (retryMatch && request.method === "POST") {
     const jobId = retryMatch[1];
-    const job = JOBS_DB[jobId];
+    const job = await readJob(jobId);
     if (!job) {
       response.status(404).json({ error: "Job not found" });
     } else {
       job.status = "queued";
       job.logs = ["Job retried."];
+      if (isDurableJobStoreEnabled()) {
+        await runAsyncJob(jobId);
+        await putJob(JOBS_DB[jobId]);
+        response.json(JOBS_DB[jobId]);
+        return true;
+      }
       void runAsyncJob(jobId);
       response.json(job);
     }
@@ -9161,11 +9283,12 @@ var routeAiRenderApiRequest = async (request, response) => {
   if (rateMatch && request.method === "POST") {
     const jobId = rateMatch[1];
     const { rating } = request.body || {};
-    const job = JOBS_DB[jobId];
+    const job = await readJob(jobId);
     if (!job) {
       response.status(404).json({ error: "Job not found" });
     } else {
       job.userRating = rating;
+      await putJob(job);
       response.json({ success: true, job });
     }
     return true;

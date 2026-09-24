@@ -1,4 +1,5 @@
 ﻿import { GoogleGenAI } from "@google/genai";
+import { getStoredJob, isDurableJobStoreEnabled, putJob, sweepExpiredJobs } from './jobStore';
 import { GoogleAuth } from "google-auth-library";
 import path from "path";
 import fs from "fs";
@@ -87,6 +88,15 @@ export interface Job {
 
 // In-memory job repository for development
 const JOBS_DB: Record<string, Job> = {};
+
+// Serverless instances don't share JOBS_DB, so on Vercel the job is also written to Firestore.
+const readJob = async (jobId: string): Promise<Job | null> => {
+  const local = JOBS_DB[jobId];
+  if (local) return local;
+  const stored = await getStoredJob(jobId);
+  if (stored) JOBS_DB[jobId] = stored as Job;
+  return (stored as Job) || null;
+};
 
 const MOCK_ARCH_IMAGES = [
   'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80', // Contemporary villa
@@ -741,6 +751,15 @@ export const routeAiRenderApiRequest = async (
 
     JOBS_DB[jobId] = newJob;
 
+    if (isDurableJobStoreEnabled()) {
+      // A serverless instance is frozen once it responds, so the work has to finish first.
+      await runAsyncJob(jobId);
+      await putJob(JOBS_DB[jobId]);
+      void sweepExpiredJobs();
+      response.json(JOBS_DB[jobId]);
+      return true;
+    }
+
     void runAsyncJob(jobId);
 
     response.json(newJob);
@@ -751,7 +770,7 @@ export const routeAiRenderApiRequest = async (
   const statusMatch = url.match(/^\/api\/ai-render\/jobs\/([^/]+)$/);
   if (statusMatch && request.method === 'GET') {
     const jobId = statusMatch[1];
-    const job = JOBS_DB[jobId];
+    const job = await readJob(jobId);
     if (!job) {
       response.status(404).json({ error: 'Job not found' });
     } else {
@@ -764,7 +783,7 @@ export const routeAiRenderApiRequest = async (
   const resultMatch = url.match(/^\/api\/ai-render\/jobs\/([^/]+)\/result$/);
   if (resultMatch && request.method === 'GET') {
     const jobId = resultMatch[1];
-    const job = JOBS_DB[jobId];
+    const job = await readJob(jobId);
     if (!job) {
       response.status(404).json({ error: 'Job not found' });
     } else {
@@ -777,12 +796,13 @@ export const routeAiRenderApiRequest = async (
   const cancelMatch = url.match(/^\/api\/ai-render\/jobs\/([^/]+)\/cancel$/);
   if (cancelMatch && request.method === 'POST') {
     const jobId = cancelMatch[1];
-    const job = JOBS_DB[jobId];
+    const job = await readJob(jobId);
     if (!job) {
       response.status(404).json({ error: 'Job not found' });
     } else {
       job.status = 'cancelled';
       job.logs?.push('Job cancelled by user.');
+      await putJob(job);
       response.json(job);
     }
     return true;
@@ -792,12 +812,18 @@ export const routeAiRenderApiRequest = async (
   const retryMatch = url.match(/^\/api\/ai-render\/jobs\/([^/]+)\/retry$/);
   if (retryMatch && request.method === 'POST') {
     const jobId = retryMatch[1];
-    const job = JOBS_DB[jobId];
+    const job = await readJob(jobId);
     if (!job) {
       response.status(404).json({ error: 'Job not found' });
     } else {
       job.status = 'queued';
       job.logs = ['Job retried.'];
+      if (isDurableJobStoreEnabled()) {
+        await runAsyncJob(jobId);
+        await putJob(JOBS_DB[jobId]);
+        response.json(JOBS_DB[jobId]);
+        return true;
+      }
       void runAsyncJob(jobId);
       response.json(job);
     }
@@ -809,11 +835,12 @@ export const routeAiRenderApiRequest = async (
   if (rateMatch && request.method === 'POST') {
     const jobId = rateMatch[1];
     const { rating } = request.body || {};
-    const job = JOBS_DB[jobId];
+    const job = await readJob(jobId);
     if (!job) {
       response.status(404).json({ error: 'Job not found' });
     } else {
       job.userRating = rating;
+      await putJob(job);
       response.json({ success: true, job });
     }
     return true;

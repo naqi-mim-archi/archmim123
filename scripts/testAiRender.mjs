@@ -15,7 +15,7 @@ async function run() {
     format: 'esm',
     platform: 'node',
     target: 'node18',
-    external: ['@google/genai', 'google-auth-library', 'node-fetch', 'three', 'lucide-react', 'motion', 'react', 'react-dom'],
+    external: ['@google/genai', 'google-auth-library', 'node-fetch', 'three', 'lucide-react', 'motion', 'react', 'react-dom', 'firebase-admin', 'firebase-admin/app', 'firebase-admin/firestore', 'firebase-admin/storage', 'firebase-admin/database'],
   });
 
   const child = fork(path.join(__dirname, 'testAiRenderRun.js'), [], {

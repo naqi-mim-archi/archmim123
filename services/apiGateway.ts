@@ -229,7 +229,13 @@ export const runGatedApiRequest = async (
       const created = JOB_CREATE_PATTERNS.find(entry => method === 'POST' && entry.pattern.test(path));
       if (created) {
         JOB_RECORDS.set(String(payload.jobId), { ownerId: user?.uid || null, chargeRequestId: chargedRequestId, kind: created.kind });
-        if (created.kind === 'ai-render') watchAiRenderJob(String(payload.jobId), dispatch);
+        // Serverless: the render already finished inside this request, and nothing of ours runs
+        // after the response, so a failure is refunded here rather than by the watcher.
+        if (created.kind === 'ai-render' && isTerminalFailure(payload?.status)) {
+          if (user && chargedRequestId) await refundQuietly(user.uid, chargedRequestId, `Refund: AI render ${payload.status}`);
+        } else if (created.kind === 'ai-render') {
+          watchAiRenderJob(String(payload.jobId), dispatch);
+        }
       }
     }
 
@@ -239,7 +245,11 @@ export const runGatedApiRequest = async (
         // The retry was charged on its own request id; a later failure refunds that charge.
         record.chargeRequestId = chargedRequestId;
         record.watching = false;
-        watchAiRenderJob(jobRef.jobId, dispatch);
+        if (isTerminalFailure(payload?.status)) {
+          if (chargedRequestId) await refundQuietly(user.uid, chargedRequestId, `Refund: AI render ${payload.status}`);
+        } else {
+          watchAiRenderJob(jobRef.jobId, dispatch);
+        }
       } else if (record?.ownerId && record.chargeRequestId && isTerminalFailure(payload?.status)) {
         void refundQuietly(record.ownerId, record.chargeRequestId, `Refund: AI render ${payload.status}`);
       }
