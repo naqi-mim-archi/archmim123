@@ -37,7 +37,6 @@ const popupFiles = [
   'components/ApsRevitImporterDialog.tsx',
   'components/BimExporterDialog.tsx',
   'components/BimImporterWizard.tsx',
-  'components/BlockEditor.tsx',
   'components/PdfExportDialog.tsx',
   'components/RevitExporterDialog.tsx',
   'components/RevitImportWizard.tsx',
@@ -47,7 +46,6 @@ const popupFiles = [
   'components/UrbanWizard.tsx',
   'src/features/raster-canvas/components/AiEditModal.tsx',
   'src/features/raster-canvas/components/ExportModal.tsx',
-  'src/features/raster-canvas/components/LayersPanel.tsx',
 ];
 
 for (const popupFile of popupFiles) {

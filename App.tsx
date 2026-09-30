@@ -18,7 +18,6 @@ import { SmartProceduralFurnishEngine } from './smart-procedural/smartFurnishSer
 import SmartProceduralWizard from './smart-procedural/SmartProceduralWizard';
 import { SiteLocation, TerrainSettings, LayoutTypology, LayoutGeometry, ProceduralConfig } from './types';
 import UrbanWizard from './components/UrbanWizard';
-import { BlockEditor } from './components/BlockEditor';
 import { UrbanDashboard } from './components/UrbanDashboard';
 import { UrbanPlanParams, UrbanGeneratorService } from './services/urbanService';
 import { SiteMapPanel } from './components/SiteMapPanel';
@@ -792,7 +791,6 @@ const App: React.FC = () => {
   }, []);
 
   const [isSmartProceduralWizardOpen, setIsSmartProceduralWizardOpen] = useState(false);
-  const [isBlockEditorOpen, setIsBlockEditorOpen] = useState(false);
   const [pendingDxfImport, setPendingDxfImport] = useState<PendingDxfImport | null>(null);
   const [pendingDxfReview, setPendingDxfReview] = useState<PendingDxfReview | null>(null);
   const [isRevitWizardOpen, setIsRevitWizardOpen] = useState(false);
@@ -898,7 +896,6 @@ const App: React.FC = () => {
     if (isApsRevitImportDialogOpen) return setIsApsRevitImportDialogOpen(false);
     if (isBimImportWizardOpen) return setIsBimImportWizardOpen(false);
     if (isRevitWizardOpen) return setIsRevitWizardOpen(false);
-    if (isBlockEditorOpen) return setIsBlockEditorOpen(false);
     if (isSmartProceduralWizardOpen) return setIsSmartProceduralWizardOpen(false);
     if (isProceduralWizardOpen) return setIsProceduralWizardOpen(false);
     if (isUrbanWizardOpen) return setIsUrbanWizardOpen(false);
@@ -923,7 +920,7 @@ const App: React.FC = () => {
     showMirrorOptions, isImportExportMenuOpen, pendingDxfImport, pendingConvert3dId,
     isPdfExportOpen, isSiteImportWizardOpen, isSiteMapPanelOpen, isRevitExportDialogOpen,
     isBimExportDialogOpen, isApsRevitImportDialogOpen, isBimImportWizardOpen, isRevitWizardOpen,
-    isBlockEditorOpen, isSmartProceduralWizardOpen, isProceduralWizardOpen, isUrbanWizardOpen,
+    isSmartProceduralWizardOpen, isProceduralWizardOpen, isUrbanWizardOpen,
     isGenerativeWizardOpen, editorState.activeTool, placingImportedElements,
   ]);
 
@@ -931,7 +928,7 @@ const App: React.FC = () => {
     showMirrorOptions || isImportExportMenuOpen || pendingDxfImport || pendingConvert3dId ||
     isPdfExportOpen || isSiteImportWizardOpen || isSiteMapPanelOpen || isRevitExportDialogOpen ||
     isBimExportDialogOpen || isApsRevitImportDialogOpen || isBimImportWizardOpen || isRevitWizardOpen ||
-    isBlockEditorOpen || isSmartProceduralWizardOpen || isProceduralWizardOpen || isUrbanWizardOpen ||
+    isSmartProceduralWizardOpen || isProceduralWizardOpen || isUrbanWizardOpen ||
     isGenerativeWizardOpen || editorState.activeTool === 'auto-procedural-boundary' || placingImportedElements
   );
 
@@ -1719,27 +1716,6 @@ const App: React.FC = () => {
       alert(error instanceof Error ? error.message : 'DXF export failed.');
     }
   }, [project?.name, require2DAction]);
-  const handleSaveCustomBlock = (block: { name: string; width: number; depth: number; height: number; customMeshData?: { vertices: number[]; faces: number[] } }) => {
-    if (!project) return;
-    const newEl: ArchElement = {
-      id: crypto.randomUUID(),
-      type: 'furniture',
-      subType: block.name,
-      label: block.name,
-      width: block.width,
-      depth: block.depth,
-      height: block.height,
-      customMeshData: block.customMeshData,
-      pos: { x: 0, y: 0 },
-      rotation: 0,
-      levelId: editorState.activeLevelId
-    };
-    const nextProject = { ...project, elements: [...project.elements, newEl] };
-    setProject(nextProject);
-    pushHistory(nextProject);
-    alert(`Custom block "${block.name}" created and placed at center of origin.`);
-  };
-  
   const createBlankProject = () => {
     const defaultLevelId = crypto.randomUUID();
     const proj: Project = {
